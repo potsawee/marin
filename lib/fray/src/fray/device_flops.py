@@ -96,6 +96,16 @@ DEVICE_FLOPS: dict[str, dict[str, float]] = {
         "fp16": 309.7e12 / 2,
         "bf16": 309.7e12 / 2,
     },
+    # source: https://www.nvidia.com/content/dam/en-zz/Solutions/design-visualization/rtx-6000/proviz-rtx-6000-ada-datasheet.pdf
+    # nvidia publishes spec sheet with a 2x sparsity factor
+    "rtx6000-ada": {
+        "fp32": 91.1e12,
+        "tf32": 362.05e12 / 2,
+        "fp16": 724.1e12 / 2,
+        "bf16": 724.1e12 / 2,
+        "fp8": 1448.2e12 / 2,
+        "int8": 1448.2e12 / 2,
+    },
     # B100 - approximate with H100 until specs available
     "b100": {
         "fp64": 67e12,
@@ -284,6 +294,8 @@ def jax_device_kind_to_fray_device_type(kind: str) -> str:
         return "t4"
     if "a6000" in kind:
         return "a6000"
+    if "rtx 6000 ada" in kind:
+        return "rtx6000-ada"
     if "l40s" in kind:
         return "l40s"
     if "l4" in kind:
