@@ -59,8 +59,9 @@ YODAS_SHARDS = ["en001", "en006", "en007", "en100", "en106", "en107", "en109", "
 # Old SODA speech mix (yodas:emilia-yodas:emilia = 131:73:37B tokens) renormalized
 # without the unavailable Nemotron text component.
 MIX_WEIGHTS = {"yodas": 0.544, "emilia_yodas": 0.303, "emilia": 0.154}
-# Raw parquet bytes per flattened token, measured on yodas2-mm-pretrain (897 GB / 295 B tokens).
-BYTES_PER_TOKEN = 2.55
+# Raw parquet bytes per flattened token, calibrated per source from the first
+# production run's manifest (kept_tokens / keep_rate vs bytes on disk).
+BYTES_PER_TOKEN = {"yodas": 2.95, "emilia_yodas": 3.24, "emilia": 3.01}
 
 L_STEPS = 1024
 PAD = -1
@@ -252,7 +253,7 @@ def source_specs(data_root: str, emilia_manifest: str) -> list[SourceSpec]:
 
 def keep_buckets_for(spec: SourceSpec, total_token_budget: float) -> int:
     """Deterministic per-source keep threshold (in hash buckets) hitting the mix budget."""
-    available_tokens = sum(os.path.getsize(f) for f in spec.files) / BYTES_PER_TOKEN
+    available_tokens = sum(os.path.getsize(f) for f in spec.files) / BYTES_PER_TOKEN[spec.name]
     wanted = total_token_budget * MIX_WEIGHTS[spec.name]
     keep_rate = min(1.0, wanted / max(available_tokens, 1.0))
     return round(keep_rate * _HASH_BUCKETS)
@@ -346,7 +347,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", default=os.environ.get("MARIN_PREFIX", "") + "/audio2")
     parser.add_argument("--data-root", default=DATA_ROOT)
     parser.add_argument("--emilia-manifest", default=f"{DATA_ROOT}/emilia-en-file-pick-v2.json")
-    parser.add_argument("--token-budget", type=float, default=12e9, help="total flattened-token target across sources")
+    parser.add_argument("--token-budget", type=float, default=16e9, help="total flattened-token target across sources")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
     result = run(args.output, args.data_root, args.emilia_manifest, args.token_budget, args.workers)
