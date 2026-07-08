@@ -6,16 +6,16 @@
 A **backbone** decoder (the same Qwen3 stack the flattened arm uses) runs over
 "steps": one text/special token or one whole audio frame per position, the
 frame input being the sum of its 8 codebook embeddings. A unified head over
-text ∪ specials ∪ semantic-codebook predicts each step's primary token. A small
+text + specials + semantic-codebook predicts each step's primary token. A small
 **depth** decoder (same Qwen3 blocks, sequence axis = the 8 codebook slots,
 batched over steps) predicts the next frame's 7 acoustic codebooks
 autoregressively, conditioned on the backbone hidden state and teacher-forced
 codebook prefix, with per-codebook output heads (CSM factorization: semantic is
 the backbone's job).
 
-The joint loss counts one CE term per underlying token — identical term count
-to the flattened arm over the same document — with Moshi-style α-weighting
-(``Σ α·ce / Σ α·w``) as a config knob. ``per_type_losses`` exposes unreduced
+The joint loss counts one CE term per underlying token -- identical term count
+to the flattened arm over the same document -- with Moshi-style alpha--weighting
+(``sum  alpha-*ce / sum  alpha-*w``) as a config knob. ``per_type_losses`` exposes unreduced
 per-term CE for the comparable-NLL evaluator.
 """
 
@@ -42,7 +42,6 @@ from experiments.audio.audio_vocab import (
     NUM_CODEBOOKS,
     SEMANTIC_HI,
     SEMANTIC_LO,
-    TEXT_VOCAB,
     UNIFIED_VOCAB,
 )
 from experiments.audio.data import PAD, AudioStepExample
@@ -66,7 +65,7 @@ class AudioHierConfig:
     depth_heads: int = 3
     depth_kv_heads: int = 3
     rope: RotaryEmbeddingsConfig = field(default_factory=Llama3RotaryEmbeddingsConfig)
-    # loss recipe (Moshi defaults: α=100 on text+semantic, 1 on acoustic)
+    # loss recipe (Moshi defaults: alpha-=100 on text+semantic, 1 on acoustic)
     alpha_text: float = 100.0
     alpha_semantic: float = 100.0
     alpha_acoustic: float = 1.0
@@ -115,13 +114,13 @@ CB = Axis("cb", CODEBOOK_SIZE)
 
 class AudioHierModel(eqx.Module):
     config: AudioHierConfig = eqx.field(static=True)
-    embed: hnn.Embedding  # FullVocab x Embed — shared backbone input table
+    embed: hnn.Embedding  # FullVocab x Embed -- shared backbone input table
     backbone: LlamaTransformer
     unified_head: hnn.Linear  # Embed -> Unified
     bd_proj: hnn.Linear  # Embed -> DepthEmbed (backbone hidden into the depth stack)
-    depth_embed: hnn.Embedding  # AudioVocab x DepthEmbed — depth teacher-forcing inputs
+    depth_embed: hnn.Embedding  # AudioVocab x DepthEmbed -- depth teacher-forcing inputs
     depth: LlamaTransformer
-    acoustic_heads: NamedArray  # Acoustic x DepthEmbed x CB — per-codebook output heads
+    acoustic_heads: NamedArray  # Acoustic x DepthEmbed x CB -- per-codebook output heads
 
     @classmethod
     def init(cls, config: AudioHierConfig, *, key) -> "AudioHierModel":
@@ -132,9 +131,7 @@ class AudioHierModel(eqx.Module):
         bd_proj = hnn.Linear.init(In=config.Embed, Out=config.DepthEmbed, key=k_p, use_bias=False, out_first=True)
         depth_embed = hnn.Embedding.init(AudioVocab, config.DepthEmbed, key=k_de)
         depth = LlamaTransformer.init(config.depth_config(), key=k_d)
-        acoustic_heads = hax.random.truncated_normal(
-            k_h, (Acoustic, config.DepthEmbed, CB), lower=-3, upper=3
-        ) * (0.02)
+        acoustic_heads = hax.random.truncated_normal(k_h, (Acoustic, config.DepthEmbed, CB), lower=-3, upper=3) * (0.02)
         return cls(config, embed, backbone, unified_head, bd_proj, depth_embed, depth, acoustic_heads)
 
     def backbone_hidden(self, ex: AudioStepExample) -> NamedArray:
@@ -228,12 +225,12 @@ class AudioHierModel(eqx.Module):
         }
 
     def compute_joint_loss(self, ex: AudioStepExample, *, key=None) -> jax.Array:
-        """α-weighted mean CE over all terms (the training objective)."""
+        """alpha--weighted mean CE over all terms (the training objective)."""
         parts = self.per_type_losses(ex)
         cfg = self.config
         tgt = parts["tgt_primary"]
         is_sem = (tgt >= SEMANTIC_LO) & (tgt < SEMANTIC_HI)
-        # text and the four block-marker specials share α_text
+        # text and the four block-marker specials share alpha-_text
         alpha_bb = jnp.where(is_sem, cfg.alpha_semantic, cfg.alpha_text)
         w_bb = parts["w_backbone"].astype(jnp.float32) * alpha_bb
         w_dep = parts["w_depth"].astype(jnp.float32)[..., None] * cfg.alpha_acoustic

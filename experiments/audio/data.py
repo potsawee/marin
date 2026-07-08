@@ -9,9 +9,9 @@ of ``L_STEPS`` backbone steps. This module loads those windows as
 block-deterministic mixture + feistel shuffle the flattened arm uses.
 """
 
-import equinox as eqx
 import functools
 
+import equinox as eqx
 import haliax as hax
 import jax
 import numpy as np

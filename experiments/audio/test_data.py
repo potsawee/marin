@@ -13,10 +13,7 @@ from experiments.audio.preprocess_audio import PAD, WindowPacker
 
 def test_cache_roundtrip_preserves_packed_windows(tmp_path):
     rng = np.random.default_rng(0)
-    docs = [
-        rng.integers(0, 2048, size=(n, NUM_CODEBOOKS)).astype(np.int32)
-        for n in (5, 9, 3)
-    ]
+    docs = [rng.integers(0, 2048, size=(n, NUM_CODEBOOKS)).astype(np.int32) for n in (5, 9, 3)]
     packer = WindowPacker(length=8)
     windows = [w for doc in docs for w in packer.add(doc)] + list(packer.flush())
 

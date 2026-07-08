@@ -7,7 +7,7 @@ One pass over the soda-research mm-pretrain parquet files produces, from the
 SAME tokenization of each kept document:
 
 - **Arm F cache** (flattened): one row per document, ``{"input_ids": int32[L]}``
-  — the standard Levanter text-cache layout consumed via ``TokenSeqDataset``.
+  -- the standard Levanter text-cache layout consumed via ``TokenSeqDataset``.
 - **Arm H cache** (hierarchical): pre-packed windows of ``L_STEPS`` backbone
   steps, ``{"codes8": int32[L_STEPS, 8], "seg_ids": int32[L_STEPS]}``. A step is
   one text/special token (slot0 = its id, slots1..7 = PAD) or one audio frame
@@ -18,7 +18,7 @@ Documents are kept/held-out by a deterministic hash of the BASE utterance id
 (``..._type1``/``..._type2`` interleave twins share a base id and always land
 on the same side of every split), so the doc set is identical for both arms.
 Every document asserts the term-count identity ``len(flat) == steps + 7*frames``
-— the invariant that makes the two arms' total NLL directly comparable.
+-- the invariant that makes the two arms' total NLL directly comparable.
 
 Run on a CPU node (no GPU needed), e.g.:
 
@@ -39,6 +39,8 @@ from pathlib import Path
 
 import numpy as np
 import pyarrow.parquet as pq
+from levanter.store.cache import SerialCacheWriter
+from transformers import AutoTokenizer
 
 from experiments.audio.audio_vocab import (
     NUM_CODEBOOKS,
@@ -76,8 +78,8 @@ class SourceSpec:
 @dataclass
 class ParsedDoc:
     base_id: str
-    flat_ids: np.ndarray  # (L,) int32 — the Arm F row
-    codes8: np.ndarray  # (steps, 8) int32 — the Arm H step rows
+    flat_ids: np.ndarray  # (L,) int32 -- the Arm F row
+    codes8: np.ndarray  # (steps, 8) int32 -- the Arm H step rows
     frames: int
 
 
@@ -173,42 +175,71 @@ _WORKER_TOKENIZER = None
 
 def _worker_init():
     global _WORKER_TOKENIZER
-    from transformers import AutoTokenizer
-
     _WORKER_TOKENIZER = AutoTokenizer.from_pretrained(TOKENIZER_ID)
 
 
-def _process_file(task: tuple[str, str, int]) -> list[tuple[str, str, np.ndarray, np.ndarray, int]]:
-    """Parse one parquet file -> kept docs as (doc_id, split, flat, codes8, frames)."""
-    path, source, keep_buckets = task
-    out = []
+def _process_file(task: tuple[str, int]) -> dict:
+    """Parse one parquet file into compact concatenated arrays of the KEPT docs.
+
+    The keep/holdout decision happens before tokenization (only ~keep-rate of
+    rows are ever tokenized), and results ship back to the writer process as a
+    handful of large arrays instead of per-doc objects.
+    """
+    path, keep_buckets = task
+    doc_ids: list[str] = []
+    splits: list[int] = []  # 0 = train, 1 = holdout
+    frames_per_doc: list[int] = []
+    flat_parts: list[np.ndarray] = []
+    step_parts: list[np.ndarray] = []
     skipped = 0
+    holdout_below = HOLDOUT_PERMILLE * (_HASH_BUCKETS // 1000)
     pf = pq.ParquetFile(path)
     for batch in pf.iter_batches(batch_size=256, columns=["id", "text"]):
         rows = batch.to_pylist()
-        texts = [r["text"] for r in rows]
-        encoded = _WORKER_TOKENIZER(texts, add_special_tokens=False)["input_ids"]
-        for row, ids in zip(rows, encoded, strict=True):
+        kept = []
+        for row in rows:
             bucket = doc_hash_bucket(base_id_of(row["id"]))
-            holdout = bucket < HOLDOUT_PERMILLE * (_HASH_BUCKETS // 1000)
-            if not holdout and bucket >= keep_buckets:
-                continue
+            if bucket < holdout_below:
+                kept.append((row, 1))
+            elif bucket < keep_buckets:
+                kept.append((row, 0))
+        if not kept:
+            continue
+        encoded = _WORKER_TOKENIZER([r["text"] for r, _ in kept], add_special_tokens=False)["input_ids"]
+        for (row, split), ids in zip(kept, encoded, strict=True):
             try:
                 flat, codes8, frames = parse_doc(ids)
             except DocParseError:
                 skipped += 1
                 continue
-            out.append((row["id"], "holdout" if holdout else "train", flat, codes8, frames))
+            doc_ids.append(row["id"])
+            splits.append(split)
+            frames_per_doc.append(frames)
+            flat_parts.append(flat)
+            step_parts.append(codes8)
     if skipped:
         logger.warning("%s: skipped %d malformed docs", path, skipped)
-    return out
+    flat_off = np.zeros(len(flat_parts) + 1, dtype=np.int64)
+    np.cumsum([len(p) for p in flat_parts], out=flat_off[1:])
+    steps_off = np.zeros(len(step_parts) + 1, dtype=np.int64)
+    np.cumsum([len(p) for p in step_parts], out=steps_off[1:])
+    return {
+        "doc_ids": doc_ids,
+        "splits": np.asarray(splits, dtype=np.uint8),
+        "frames": np.asarray(frames_per_doc, dtype=np.int64),
+        "flat": np.concatenate(flat_parts) if flat_parts else np.zeros(0, np.int32),
+        "flat_off": flat_off,
+        "steps": np.concatenate(step_parts) if step_parts else np.zeros((0, NUM_CODEBOOKS), np.int32),
+        "steps_off": steps_off,
+    }
 
 
 def source_specs(data_root: str, emilia_manifest: str) -> list[SourceSpec]:
     yodas = []
     for shard in YODAS_SHARDS:
         yodas.extend(sorted(str(p) for p in Path(data_root, "yodas2-mm-pretrain", shard).glob("*.parquet")))
-    picked = json.load(open(emilia_manifest))["files"]
+    with open(emilia_manifest) as fh:
+        picked = json.load(fh)["files"]
     emilia_root = Path(data_root, "emilia-mm-pretrain-fix")
     ey = sorted(str(emilia_root / p) for p in picked if p.startswith("Emilia-YODAS/EN/") and (emilia_root / p).exists())
     em = sorted(str(emilia_root / p) for p in picked if p.startswith("Emilia/EN/") and (emilia_root / p).exists())
@@ -224,12 +255,21 @@ def keep_buckets_for(spec: SourceSpec, total_token_budget: float) -> int:
     available_tokens = sum(os.path.getsize(f) for f in spec.files) / BYTES_PER_TOKEN
     wanted = total_token_budget * MIX_WEIGHTS[spec.name]
     keep_rate = min(1.0, wanted / max(available_tokens, 1.0))
-    return int(round(keep_rate * _HASH_BUCKETS))
+    return round(keep_rate * _HASH_BUCKETS)
+
+
+def _flush_buffers(writers, flat_buf, window_buf, split: str, min_rows: int = 0) -> None:
+    """Write buffered rows for one split in large batches (TensorStore round-trips are slow)."""
+    if len(flat_buf[split]) > min_rows:
+        writers[("arm_f", split)].write_batch({"input_ids": flat_buf[split]})
+        flat_buf[split].clear()
+    if len(window_buf[split]) > min_rows:
+        windows = window_buf[split]
+        writers[("arm_h", split)].write_batch({k: [w[k] for w in windows] for k in ("codes8", "seg_ids")})
+        window_buf[split].clear()
 
 
 def run(output: str, data_root: str, emilia_manifest: str, token_budget: float, workers: int) -> dict:
-    from levanter.store.cache import SerialCacheWriter
-
     specs = source_specs(data_root, emilia_manifest)
     for spec in specs:
         if not spec.files:
@@ -251,7 +291,7 @@ def run(output: str, data_root: str, emilia_manifest: str, token_budget: float, 
             "frames": {"train": 0, "holdout": 0},
         }
         src_stats = stats["sources"][spec.name]
-        tasks = [(f, spec.name, keep) for f in spec.files]
+        tasks = [(f, keep) for f in spec.files]
 
         packers = {split: WindowPacker() for split in ("train", "holdout")}
         with contextlib.ExitStack() as stack:
@@ -266,20 +306,27 @@ def run(output: str, data_root: str, emilia_manifest: str, token_budget: float, 
                 for arm in ("arm_f", "arm_h")
                 for split in ("train", "holdout")
             }
+            flat_buf: dict[str, list[np.ndarray]] = {"train": [], "holdout": []}
+            window_buf: dict[str, list[dict[str, np.ndarray]]] = {"train": [], "holdout": []}
+
             with mp.Pool(workers, initializer=_worker_init) as pool:
-                for docs in pool.imap(_process_file, tasks):
-                    for doc_id, split, flat, codes8, frames in docs:
-                        writers[("arm_f", split)].write_batch({"input_ids": [flat]})
-                        for window in packers[split].add(codes8):
-                            writers[("arm_h", split)].write_batch({k: [v] for k, v in window.items()})
+                for result in pool.imap(_process_file, tasks):
+                    for i, doc_id in enumerate(result["doc_ids"]):
+                        split = "holdout" if result["splits"][i] else "train"
+                        flat = result["flat"][result["flat_off"][i] : result["flat_off"][i + 1]]
+                        codes8 = result["steps"][result["steps_off"][i] : result["steps_off"][i + 1]]
+                        flat_buf[split].append(flat)
+                        window_buf[split].extend(packers[split].add(codes8))
                         src_stats["docs"][split] += 1
                         src_stats["tokens"][split] += len(flat)
-                        src_stats["frames"][split] += frames
+                        src_stats["frames"][split] += int(result["frames"][i])
                         if split == "holdout":
                             holdout_ids.append({"id": doc_id, "source": spec.name})
+                    for split in ("train", "holdout"):
+                        _flush_buffers(writers, flat_buf, window_buf, split, min_rows=1024)
             for split, packer in packers.items():
-                for window in packer.flush():
-                    writers[("arm_h", split)].write_batch({k: [v] for k, v in window.items()})
+                window_buf[split].extend(packer.flush())
+                _flush_buffers(writers, flat_buf, window_buf, split)
         logger.info("source %s done: %s", spec.name, src_stats)
 
     Path(output).mkdir(parents=True, exist_ok=True)
