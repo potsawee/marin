@@ -37,6 +37,7 @@ from haliax import Axis
 from levanter.checkpoint import load_checkpoint
 from levanter.layers.attention import AttentionMask
 from levanter.models.loss import maybe_fused_next_token_loss
+from levanter.trainer import TrainerConfig
 from transformers import AutoTokenizer
 
 from experiments.audio.audio_vocab import (
@@ -100,8 +101,18 @@ def _bucket_totals(ce: np.ndarray, weight: np.ndarray, target_ids: np.ndarray) -
     return out
 
 
-def eval_flat(checkpoint: str, d: int, docs) -> dict:
-    cfg = flat_dims(d)
+def _mesh_context():
+    trainer_cfg = TrainerConfig()
+    return trainer_cfg.use_device_mesh(), hax.axis_mapping(trainer_cfg.compute_axis_mapping)
+
+
+def eval_flat(checkpoint: str, cfg, docs) -> dict:
+    mesh_ctx, mapping_ctx = _mesh_context()
+    with mesh_ctx, mapping_ctx:
+        return _eval_flat_inner(checkpoint, cfg, docs)
+
+
+def _eval_flat_inner(checkpoint: str, cfg, docs) -> dict:
     Vocab = Axis("vocab", FULL_VOCAB)
     model = cfg.build(Vocab, key=jrandom.PRNGKey(0))
     model = load_checkpoint(model, checkpoint, subpath="model")
@@ -111,7 +122,14 @@ def eval_flat(checkpoint: str, d: int, docs) -> dict:
         named = hax.named(tokens, ("batch", "position"))
         acts = m.activations(named, attn_mask=AttentionMask.causal(), key=None)
         loss = maybe_fused_next_token_loss(
-            "position", m.Embed, m.Vocab, acts, m.get_lm_head(), named, loss_weight=None, reduction=None
+            named.resolve_axis("position"),
+            m.Embed,
+            m.Vocab,
+            acts,
+            m.get_lm_head(),
+            named,
+            loss_weight=None,
+            reduction=None,
         )
         return loss.array
 
@@ -132,8 +150,13 @@ def eval_flat(checkpoint: str, d: int, docs) -> dict:
     return totals
 
 
-def eval_hier(checkpoint: str, d: int, docs, *, depth_hidden: int | None = None, depth_layers: int = 4) -> dict:
-    cfg = hier_dims(d, depth_hidden=depth_hidden, depth_layers=depth_layers)
+def eval_hier(checkpoint: str, cfg, docs) -> dict:
+    mesh_ctx, mapping_ctx = _mesh_context()
+    with mesh_ctx, mapping_ctx:
+        return _eval_hier_inner(checkpoint, cfg, docs)
+
+
+def _eval_hier_inner(checkpoint: str, cfg, docs) -> dict:
     model = AudioHierModel.init(cfg, key=jrandom.PRNGKey(0))
     model = load_checkpoint(model, checkpoint, subpath="model")
 
@@ -205,9 +228,10 @@ if __name__ == "__main__":
 
     docs = load_eval_docs(args.eval_parquet, limit=args.limit)
     if args.arm == "flat":
-        totals = eval_flat(args.checkpoint, args.d, docs)
+        totals = eval_flat(args.checkpoint, flat_dims(args.d), docs)
     else:
-        totals = eval_hier(args.checkpoint, args.d, docs, depth_hidden=args.depth_hidden, depth_layers=args.depth_layers)
+        cfg = hier_dims(args.d, depth_hidden=args.depth_hidden, depth_layers=args.depth_layers)
+        totals = eval_hier(args.checkpoint, cfg, docs)
     summary = summarize(totals, docs)
     print(json.dumps(summary, indent=2))
     if args.output:

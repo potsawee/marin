@@ -32,6 +32,7 @@ from levanter.tracker.json_file import JsonFileTrackerConfig
 from levanter.trainer import TrainerConfig
 
 from experiments.audio.data import AudioStepDataset, AudioStepExample
+from experiments.audio.eval_audio_nll import DEFAULT_EVAL_PARQUET, eval_flat, eval_hier, load_eval_docs, summarize
 from experiments.audio.model_hier import AudioHierConfig, AudioHierModel
 from experiments.audio.train_audio_lm import AudioTrainConfig, main
 
@@ -187,11 +188,29 @@ def rung_floors() -> None:
     print(f"RUNG floors PASS: backbone {bb:.3f} (~11.78), depth {dep:.3f} (~7.62)")
 
 
+def rung_evaldet() -> None:
+    """Rung 6: the evaluator loads real checkpoints and is bit-deterministic."""
+    docs = load_eval_docs(DEFAULT_EVAL_PARQUET, limit=64)
+    ckpt_h = f"{SMOKE_STORE}/smoke-armh-overfit/ckpt/smoke-armh-overfit/step-299"
+    ckpt_f = f"{SMOKE_STORE}/smoke-armf-tiny/ckpt/smoke-armf-tiny/step-99"
+    for name, fn in (
+        ("hier", lambda: eval_hier(ckpt_h, TINY_HIER, docs)),
+        ("flat", lambda: eval_flat(ckpt_f, TINY_FLAT, docs)),
+    ):
+        a = summarize(fn(), docs)
+        b = summarize(fn(), docs)
+        assert a == b, f"{name} eval not deterministic"
+        assert np.isfinite(a["nll/total"]) and a["bits_per_audio_second"] > 0
+        print(f"  {name}: nll/total={a['nll/total']:.1f} bits/audio-s={a['bits_per_audio_second']:.2f} (2x identical)")
+    print("RUNG evaldet PASS")
+
+
 RUNGS = {
     "armf-tiny": rung_armf_tiny,
     "overfit": rung_overfit,
     "depth0": rung_depth0,
     "floors": rung_floors,
+    "evaldet": rung_evaldet,
 }
 
 if __name__ == "__main__":
