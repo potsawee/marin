@@ -23,9 +23,11 @@ from dataclasses import dataclass, field
 import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jrandom
+import levanter
 import numpy as np
 from haliax import Axis
 from haliax.partitioning import round_axis_for_partitioning
+from levanter import callbacks
 from levanter.data.dataset import MappedAsyncDataset
 from levanter.data.mixture import MixtureDataset
 from levanter.data.text.datasets import CausalLmDataset, NamedLmDataset, TokenSeqDataset
@@ -36,9 +38,6 @@ from levanter.optim import OptimizerConfig
 from levanter.store.cache import TreeCache
 from levanter.trainer import Trainer, TrainerConfig
 from levanter.utils.jax_utils import parameter_count
-
-import levanter
-from levanter import callbacks
 
 from experiments.audio.audio_vocab import EOS_ID, FULL_VOCAB, SEMANTIC_HI, SEMANTIC_LO
 from experiments.audio.data import AudioStepExample, build_step_mixture
@@ -125,7 +124,7 @@ def main(config: AudioTrainConfig):
 
     with Trainer(config.trainer, optimizer, loss_function) as trainer:
         seed = config.trainer.seed
-        data_key, loader_key, model_key, training_key = jrandom.split(jrandom.PRNGKey(seed), 4)
+        data_key, _loader_key, model_key, training_key = jrandom.split(jrandom.PRNGKey(seed), 4)
 
         if config.arm == "flat":
             Pos = config.flat_model.max_Pos.resize(config.seq_len)
