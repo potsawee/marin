@@ -32,6 +32,8 @@ DEVICES = {
     "cpu": (ResourceConfig.with_cpu(), 4),
     "h100x8": (ResourceConfig.with_gpu("H100", count=8, cpu=32, disk="128G", ram="128G"), 256),
     "v5litepod-16": (ResourceConfig.with_tpu("v5litepod-16", slice_count=1, cpu=32, ram="128g", disk="50g"), 128),
+    "gpu1": (ResourceConfig.with_gpu("auto", count=1, cpu=8, disk="64G", ram="32G"), 32),
+    "gpu2": (ResourceConfig.with_gpu("auto", count=2, cpu=16, disk="64G", ram="60G"), 64),
 }
 
 # Raw HuggingFace text datasets tokenized inline (a small sample for a quick run).
