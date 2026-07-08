@@ -19,7 +19,7 @@ Launch like the headline runs:
 import argparse
 import logging
 
-from experiments.audio.exp_isoflop_headline import _common
+from experiments.audio.exp_isoflop_headline import _common, finalize_run
 from experiments.audio.isoflop_audio_target import solve_flat, solve_hier
 from experiments.audio.train_audio_lm import AudioTrainConfig, main
 
@@ -28,12 +28,14 @@ logger = logging.getLogger(__name__)
 
 def _flat(budget: float, d: int, tag: str) -> AudioTrainConfig:
     spec, cfg = solve_flat(budget, d)
-    return AudioTrainConfig(arm="flat", flat_model=cfg, seq_len=4096, **_common(spec, f"{tag}-flat-d{d}"))
+    config = AudioTrainConfig(arm="flat", flat_model=cfg, seq_len=4096, **_common(spec))
+    return finalize_run(config, f"{tag}-flat-d{d}", spec)
 
 
 def _hier(budget: float, d: int, tag: str) -> AudioTrainConfig:
     spec, cfg = solve_hier(budget, d)
-    return AudioTrainConfig(arm="hier", hier_model=cfg, **_common(spec, f"{tag}-hier-d{d}"))
+    config = AudioTrainConfig(arm="hier", hier_model=cfg, **_common(spec))
+    return finalize_run(config, f"{tag}-hier-d{d}", spec)
 
 
 RUNS = {

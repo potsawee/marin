@@ -19,6 +19,7 @@ import dataclasses
 import json
 import logging
 import os
+import shutil
 
 import haliax as hax
 import jax.random as jrandom
@@ -70,6 +71,11 @@ TINY_HIER = AudioHierConfig(
 )
 
 
+def _fresh(run_id: str) -> None:
+    """Wipe a run's store dir so a smoke always trains from scratch (no stale resume)."""
+    shutil.rmtree(f"{SMOKE_STORE}/{run_id}", ignore_errors=True)
+
+
 def _trainer(run_id: str, steps: int, batch: int) -> TrainerConfig:
     return TrainerConfig(
         id=run_id,
@@ -110,6 +116,7 @@ def _final_train_loss(run_id: str) -> float:
 def rung_armf_tiny() -> None:
     """The shared main trains the FLATTENED arm end-to-end and the loss moves."""
     run_id = "smoke-armf-tiny"
+    _fresh(run_id)
     cfg = AudioTrainConfig(
         arm="flat",
         data_root=MINI_DATA_ROOT,
@@ -121,13 +128,14 @@ def rung_armf_tiny() -> None:
     )
     main(cfg)
     final = _final_train_loss(run_id)
-    assert final < 9.0, f"flat tiny run did not learn: final loss {final:.2f} (init ~11.9)"
+    assert 0.5 < final < 9.0, f"flat tiny final loss {final:.3f} implausible (expect ~8; 0.0 => no-op/resume)"
     print(f"RUNG armf-tiny PASS: final train loss {final:.3f} (init ~11.9)")
 
 
 def rung_overfit() -> None:
     """Arm H trains end-to-end on the mini caches and the joint loss drops sharply."""
     run_id = "smoke-armh-overfit"
+    _fresh(run_id)
     cfg = AudioTrainConfig(
         arm="hier",
         data_root=MINI_DATA_ROOT,
@@ -138,7 +146,7 @@ def rung_overfit() -> None:
     )
     main(cfg)
     final = _final_train_loss(run_id)
-    assert final < 7.0, f"hier tiny run did not learn: final loss {final:.2f} (init ~11.8)"
+    assert 0.5 < final < 7.0, f"hier tiny final loss {final:.3f} implausible (expect ~4; 0.0 => no-op/resume)"
     print(f"RUNG overfit PASS: final joint loss {final:.3f} (init ~11.8)")
 
 
@@ -149,6 +157,7 @@ def rung_depth0() -> None:
     >= the full tiny model's from rung_overfit (same data, steps, seed).
     """
     run_id = "smoke-armh-depth0"
+    _fresh(run_id)
     crippled = dataclasses.replace(TINY_HIER, depth_layers=0)
     cfg = AudioTrainConfig(
         arm="hier",

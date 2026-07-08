@@ -17,7 +17,7 @@ Same launch pattern as the other exp scripts:
 import argparse
 import logging
 
-from experiments.audio.exp_isoflop_headline import _common
+from experiments.audio.exp_isoflop_headline import _common, finalize_run
 from experiments.audio.isoflop_audio_target import solve_hier
 from experiments.audio.train_audio_lm import AudioTrainConfig, main
 
@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 def _ablation(depth_hidden: int, depth_layers: int, tag: str) -> AudioTrainConfig:
     spec, cfg = solve_hier(3e18, 768, depth_hidden=depth_hidden, depth_layers=depth_layers)
-    return AudioTrainConfig(arm="hier", hier_model=cfg, **_common(spec, tag))
+    config = AudioTrainConfig(arm="hier", hier_model=cfg, **_common(spec))
+    return finalize_run(config, tag, spec)
 
 
 RUNS = {
