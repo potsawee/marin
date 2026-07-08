@@ -84,7 +84,10 @@ class AudioHierConfig:
         )
 
     def depth_config(self) -> Qwen3Config:
+        # Stacked cannot scan an empty layer axis; a 0-layer depth stack (the
+        # degenerate-depth ablation) must use the sequential BlockSeq path.
         return Qwen3Config(
+            scan_layers=self.depth_layers > 0,
             max_seq_len=NUM_CODEBOOKS,
             hidden_dim=self.depth_hidden_dim,
             intermediate_dim=self.depth_intermediate_dim,

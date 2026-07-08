@@ -21,8 +21,8 @@ import logging
 import os
 
 import haliax as hax
-import jmp
 import jax.random as jrandom
+import jmp
 import numpy as np
 from levanter.checkpoint import CheckpointerConfig
 from levanter.layers.rotary import Llama3RotaryEmbeddingsConfig
@@ -160,9 +160,9 @@ def rung_depth0() -> None:
     main(cfg)
     crippled_loss = _final_train_loss(run_id)
     full_loss = _final_train_loss("smoke-armh-overfit")
-    assert crippled_loss >= full_loss - 0.05, (
-        f"depth-0 model beat the full model ({crippled_loss:.3f} < {full_loss:.3f}) - conditioning bug?"
-    )
+    assert (
+        crippled_loss >= full_loss - 0.05
+    ), f"depth-0 model beat the full model ({crippled_loss:.3f} < {full_loss:.3f}) - conditioning bug?"
     print(f"RUNG depth0 PASS: crippled {crippled_loss:.3f} >= full {full_loss:.3f}")
 
 

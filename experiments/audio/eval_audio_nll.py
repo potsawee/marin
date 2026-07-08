@@ -26,6 +26,7 @@ import json
 import logging
 import math
 
+import equinox as eqx
 import haliax as hax
 import jax
 import jax.numpy as jnp
@@ -33,7 +34,6 @@ import jax.random as jrandom
 import numpy as np
 import pyarrow.parquet as pq
 from haliax import Axis
-import equinox as eqx
 from levanter.checkpoint import load_checkpoint
 from levanter.layers.attention import AttentionMask
 from levanter.models.loss import maybe_fused_next_token_loss
