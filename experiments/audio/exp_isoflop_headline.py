@@ -46,7 +46,7 @@ def _base_trainer(spec: RunSpec, run_name: str) -> TrainerConfig:
         seed=0,
         mp=jmp.get_policy("p=f32,c=bfloat16"),
         tracker=WandbConfig(
-            project="soda-csm",
+            project="soda-extension",
             name=run_name,
             id=run_name,
             tags=["isoflop", spec.arm, f"budget={spec.budget:.0e}", f"d={spec.d}"],
