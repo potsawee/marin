@@ -17,7 +17,7 @@ from experiments.audio.audio_flops import (
     arm_h_param_count,
     gpu_hours,
 )
-from experiments.audio.isoflop_audio_target import flat_dims, hier_dims, solve_flat, solve_hier
+from experiments.audio.isoflop_audio_target import flat_dims, solve_flat, solve_hier
 
 
 def test_solver_reproduces_old_sweep_grid_point():
@@ -39,7 +39,7 @@ def test_paper_3e18_headline_point_token_budget():
 
 
 def test_hier_depth_rule_shapes_and_flops_share():
-    spec, cfg = solve_hier(3e18, 768)
+    _spec, cfg = solve_hier(3e18, 768)
     assert (cfg.depth_hidden_dim, cfg.depth_layers) == (384, 4)
     split = arm_h_flops_split(cfg)
     assert 0.15 < split.depth_share < 0.45  # depth is a real but minority cost

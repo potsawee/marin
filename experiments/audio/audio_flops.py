@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import jax
 import jax.random as jrandom
+from haliax import Axis
 from levanter.models.qwen import Qwen3Config
 from levanter.utils.flop_utils import lm_flops_per_token
 
@@ -79,8 +80,6 @@ def _param_count_abstract(init_fn) -> int:
 
 def arm_f_param_count(cfg: Qwen3Config, vocab_size: int = FULL_VOCAB) -> int:
     """Exact parameter count of the flattened model (embeddings included, untied)."""
-    from haliax import Axis
-
     return _param_count_abstract(lambda: cfg.build(Axis("vocab", vocab_size), key=jrandom.PRNGKey(0)))
 
 

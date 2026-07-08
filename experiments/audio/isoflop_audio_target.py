@@ -132,7 +132,9 @@ def solve_flat(budget: float, d: int) -> tuple[RunSpec, Qwen3Config]:
     return spec, cfg
 
 
-def solve_hier(budget: float, d: int, *, depth_hidden: int | None = None, depth_layers: int = 4) -> tuple[RunSpec, AudioHierConfig]:
+def solve_hier(
+    budget: float, d: int, *, depth_hidden: int | None = None, depth_layers: int = 4
+) -> tuple[RunSpec, AudioHierConfig]:
     cfg = hier_dims(d, depth_hidden=depth_hidden, depth_layers=depth_layers)
     fwd = arm_h_fwd_per_step(cfg)
     batch, steps, lr = _solve_batch_and_steps(budget / TRAIN_MULT, fwd, HIER_STEPS, d)
@@ -177,5 +179,7 @@ if __name__ == "__main__":
         )
     hier_768 = hier_dims(768)
     split = arm_h_flops_split(hier_768)
-    print(f"\nArm H d=768 fwd split: backbone {split.backbone / 1e6:.0f}M, depth {split.depth / 1e6:.0f}M "
-          f"({split.depth_share:.0%} of per-step FLOPs)")
+    print(
+        f"\nArm H d=768 fwd split: backbone {split.backbone / 1e6:.0f}M, depth {split.depth / 1e6:.0f}M "
+        f"({split.depth_share:.0%} of per-step FLOPs)"
+    )
