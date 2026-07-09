@@ -65,9 +65,22 @@ class RunSpec:
     name: str
 
 
+def attn_heads(d: int) -> int:
+    """Head count for width d, nearest the 128-per-head convention.
+
+    Rotary needs an even head_dim and the projections need head_dim * heads == d,
+    so reject widths that can't satisfy both (found the hard way: dd448 with
+    floor division gave 3 heads -> head_dim 149, which crashed rotary at startup).
+    """
+    heads = max(1, round(d / 128))
+    if d % heads or (d // heads) % 2:
+        raise ValueError(f"width {d}: {heads} heads gives head_dim {d / heads}, need integral and even")
+    return heads
+
+
 def flat_dims(d: int) -> Qwen3Config:
     num_layers = round(d / (64 + 4 * math.log2(d) - 7))
-    heads = max(1, d // 128)
+    heads = attn_heads(d)
     return Qwen3Config(
         max_seq_len=FLAT_SEQ_LEN,
         hidden_dim=d,
@@ -82,7 +95,7 @@ def flat_dims(d: int) -> Qwen3Config:
 
 def hier_dims(d: int, *, depth_hidden: int | None = None, depth_layers: int = 4) -> AudioHierConfig:
     num_layers = round(d / (64 + 4 * math.log2(d) - 7))
-    heads = max(1, d // 128)
+    heads = attn_heads(d)
     d_d = depth_hidden if depth_hidden is not None else d // 2
     return AudioHierConfig(
         max_steps=HIER_STEPS,
@@ -94,8 +107,8 @@ def hier_dims(d: int, *, depth_hidden: int | None = None, depth_layers: int = 4)
         depth_hidden_dim=d_d,
         depth_intermediate_dim=4 * d_d,
         depth_layers=depth_layers,
-        depth_heads=max(1, d_d // 128),
-        depth_kv_heads=max(1, d_d // 128),
+        depth_heads=attn_heads(d_d),
+        depth_kv_heads=attn_heads(d_d),
         rope=Llama3RotaryEmbeddingsConfig(),
     )
 
