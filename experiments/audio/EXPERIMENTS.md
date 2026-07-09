@@ -117,6 +117,16 @@ Exact per-run configs (params, batch, steps, lr): run
   stated per-width — that itself is a finding).
 - **Read-out.** Per-arm isoflop curve (bits/audio-second vs d) at 3e18; the
   minimum per arm is that arm's frontier point for the headline figure.
+- **Epoch caveat (writeup must flag).** p2-hier-d512 is the campaign's only
+  multi-epoch run: 3.68B backbone steps needed vs 2.48B in the corpus =
+  **1.48 epochs** (the hier stream is ~6.3x shorter than the flat one for the
+  same documents, and the solver gives small models more data). Every other
+  run is sub-epoch: flat ≤0.26 everywhere; hier d768 0.75, d896 0.56,
+  p3-small 0.96, p3-large 0.51, p4 0.25. The loader wraps cleanly (levanter
+  MixtureDataset restart strategy, modulo indexing). Bias direction is
+  conservative: repeated data is slightly worse than fresh at ~1.5 epochs, so
+  it can only understate hier at d512, not manufacture a hier win. Holdout is
+  untouched by repetition (split by base-utterance-id at preprocessing).
 
 ## P3 — depth-transformer allocation (Arm H only; `exp_depth_ablation.py`)
 
