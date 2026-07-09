@@ -27,6 +27,9 @@ sweep's derivation rules and is regression-pinned to its published grid.
 
 | file | role |
 |---|---|
+| `EXPERIMENTS.md` | campaign registry: per-experiment goals, hypotheses, fixed/varied, read-outs |
+| `launchers/` | Slurm launch scripts mirrored from `$SODA_ROOT` (train, eval, preprocess, campaign) |
+| `results/` | committed post-hoc eval JSONs (`results/p1/…`) |
 | `audio_vocab.py` | id-space constants; Unicode <-> codebook <-> LM-id helpers |
 | `preprocess_audio.py` | one-pass parquet -> both arms' Levanter caches + holdout manifest |
 | `data.py` | `AudioStepExample` + step-window dataset + source mixture (Arm H) |
@@ -60,8 +63,8 @@ recipes: Arm F uniform (the published SODA recipe); Arm H Moshi-weighted
 uv run python experiments/audio/isoflop_audio_target.py
 
 # preprocessing and training run as Slurm jobs; see the launcher scripts
-# (run_preprocess.sh, run_train.sh, run_smoke_gpu.sh) under
-# /nlp/scr/potsawee/workspace/soda-extension/
+# under experiments/audio/launchers/ (canonical; they source env.sh from
+# $SODA_ROOT, which stays outside the repo)
 
 # post-hoc eval of any checkpoint
 uv run python experiments/audio/eval_audio_nll.py \

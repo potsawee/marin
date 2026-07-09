@@ -8,12 +8,11 @@ Runs (P1's d=768 pair lives in exp_isoflop_headline.py):
     p2-flat-d512   p2-hier-d512   p2-flat-d896   p2-hier-d896     (3e18, ~7.7 GPU-h each)
     p4-flat-d768   p4-hier-d768                                    (1e18, ~2.6 GPU-h each)
 
-Launch like the headline runs:
+Launch (user submits): launchers/launch_campaign.sh submits these with the
+rest of the campaign. To hand-launch one run, wrap in nlprun exactly as that
+script does:
 
-    SLURM_CPU_BIND=none CONDA_PREFIX=unused nlprun -q jag -p standard -g 1 -r 40G -c 8 \
-      -n p2-hier-d512 -t 1-0 -m jagupard38 \
-      'bash /nlp/scr/potsawee/workspace/soda-extension/run_train.sh p2-hier-d512 exp_isoflop_sweep.py' \
-      -o /nlp/scr/potsawee/workspace/soda-extension/data/runs/p2-hier-d512.log
+    bash $SODA_ROOT/marin/experiments/audio/launchers/run_train.sh p2-hier-d512 exp_isoflop_sweep.py
 """
 
 import argparse

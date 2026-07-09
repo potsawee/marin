@@ -6,12 +6,11 @@
     p3-small   depth 256-wide, 2 layers  (~3% of params)
     p3-large   depth 512-wide, 6 layers  (~13% of params)
 
-Same launch pattern as the other exp scripts:
+Launch (user submits): launchers/launch_campaign.sh submits these with the
+rest of the campaign. To hand-launch one run, wrap in nlprun exactly as that
+script does:
 
-    SLURM_CPU_BIND=none CONDA_PREFIX=unused nlprun -q jag -p standard -g 1 -r 40G -c 8 \
-      -n p3-small -t 1-0 -m jagupard38 \
-      'bash /nlp/scr/potsawee/workspace/soda-extension/run_train.sh p3-small exp_depth_ablation.py' \
-      -o /nlp/scr/potsawee/workspace/soda-extension/data/runs/p3-small.log
+    bash $SODA_ROOT/marin/experiments/audio/launchers/run_train.sh p3-small exp_depth_ablation.py
 """
 
 import argparse

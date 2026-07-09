@@ -10,12 +10,11 @@ Runs (each ~7.7 GPU-hours on one RTX 6000 Ada at the planning MFU):
     p1b-hier    Arm H, uniform loss (decomposes architecture vs weighting)
     p1c-flat    Arm F, Moshi-weighted loss (completes the 2x2; optional)
 
-Launch (one GPU, submitted by the user, e.g.):
+Launch (user submits): launchers/launch_campaign.sh submits p1b/p1c with the
+rest of the campaign. To hand-launch one run, wrap in nlprun exactly as that
+script does:
 
-    SLURM_CPU_BIND=none CONDA_PREFIX=unused nlprun -q jag -p standard -g 1 -r 40G -c 8 \
-      -n p1-hier -t 1-0 -m jagupard37 \
-      'bash /nlp/scr/potsawee/workspace/soda-extension/run_train.sh p1-hier' \
-      -o /nlp/scr/potsawee/workspace/soda-extension/data/runs/p1-hier.log
+    bash $SODA_ROOT/marin/experiments/audio/launchers/run_train.sh p1-hier
 """
 
 import argparse
