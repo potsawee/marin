@@ -91,6 +91,12 @@ Exact per-run configs (params, batch, steps, lr): run
   - If p1b-hier stays well above p1-flat → the gap is architectural; the
     flattened factorization itself is compute-efficient.
   - Expect p1b to trade away the text/semantic advantage; report both axes.
+- **Result (2026-07-10).** p1b-hier **631.8** bits/audio-second vs p1-hier
+  658.2 and p1-flat 562.6: uniform weighting recovers only **28%** of the P1
+  gap — **~72% is architectural**. Costs: text 1.111 → 1.341 bits/text-token
+  (still well ahead of flat's 1.933), semantic 2.492 → 2.547. Per-codebook
+  acoustics improve across the board (ac1 4.57 → 4.40, ac7 4.94 → 4.71) but
+  stay far above flat (3.58 / 4.41). JSON: `results/p1b/`.
 
 ## P1c — flat, Moshi weighting (optional; `exp_isoflop_headline.py`)
 
@@ -117,6 +123,10 @@ Exact per-run configs (params, batch, steps, lr): run
   stated per-width — that itself is a finding).
 - **Read-out.** Per-arm isoflop curve (bits/audio-second vs d) at 3e18; the
   minimum per arm is that arm's frontier point for the headline figure.
+- **Partial result (2026-07-10).** p2-flat-d896 **562.2** bits/audio-second —
+  a dead tie with p1-flat d768 (562.6): the flat isoflop curve is flat between
+  d768 and d896 at 3e18 (optimum is a plateau, not a peak). d512 pair + hier
+  d896 still training. JSON: `results/p2/`.
 - **Epoch caveat (writeup must flag).** p2-hier-d512 is the campaign's only
   multi-epoch run: 3.68B backbone steps needed vs 2.48B in the corpus =
   **1.48 epochs** (the hier stream is ~6.3x shorter than the flat one for the
@@ -156,6 +166,12 @@ Exact per-run configs (params, batch, steps, lr): run
   compute, extrapolation beyond 3e18 must be hedged in the writeup.
 - **Read-out.** Per-arm two-point frontier (bits/audio-second vs budget) at
   fixed width; combined with P2 this is the isoflop-frontier figure.
+- **Result (2026-07-10).** 1e18 anchors: flat **586.5**, hier **674.5**
+  bits/audio-second — flat ahead by 15.0% at 1e18 vs 17.0% at 3e18, and flat
+  gains more per budget tripling (−23.9 vs −16.4 bits/audio-second). The gap
+  is stable-to-widening with compute; no sign of a crossover. Text improves
+  steeply with budget for flat (2.642 → 1.933 bits/text-token).
+  JSONs: `results/p4/`.
 
 ---
 
