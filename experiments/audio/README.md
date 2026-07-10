@@ -43,6 +43,8 @@ sweep's derivation rules and is regression-pinned to its published grid.
 | `exp_isoflop_headline.py` | P1/P1b/P1c: the 3e18 d=768 pair + loss-weighting cells |
 | `exp_isoflop_sweep.py` | P2: 3e18 d in {512, 896}; P4: 1e18 anchors |
 | `exp_depth_ablation.py` | P3: depth-size ablation at 3e18 d=768 |
+| `hf_export/` | HF export bridge: run registry, flat exporter, hier torch port (trust_remote_code) + converter, HF-vs-JAX parity harness (see EXPERIMENTS.md) |
+| `test_hf_hier.py` | bit-parity of the hier torch port vs AudioHierModel (both head-dim geometries) |
 
 ## Data
 

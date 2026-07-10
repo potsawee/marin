@@ -188,6 +188,34 @@ Exact per-run configs (params, batch, steps, lr): run
    KV length 8T; hier: fwd(N_backbone) + 7 x fwd(N_depth) and KV length T.
    Uses `audio_flops.py` accountants; no new runs.
 
+## HF export + capability-eval bridge
+
+Any run (and any future HERO run registered in an exp script's `RUNS`) can be
+exported to a HuggingFace checkpoint under
+`$MARIN_PREFIX/audio2-runs/<run_id>/hf/step-<N>/` — the layout blueberry-eval
+consumes. Exports are user-run, on CPU:
+
+```bash
+bash experiments/audio/launchers/run_export.sh flat p1-flat        # Qwen3ForCausalLM
+bash experiments/audio/launchers/run_export.sh hier p1-hier       # SodaHierForCausalLM (trust_remote_code)
+bash experiments/audio/launchers/run_parity.sh p1-flat 16         # HF-vs-JAX NLL parity (1 GPU, ~5 min)
+```
+
+- Arm F exports as a stock `Qwen3ForCausalLM` (QK-norm preserved; config
+  down-converted to legacy `rope_theta`/`rope_scaling` keys so transformers
+  4.x loads it correctly). The exported tokenizer auto-prepends BOS.
+- Arm H exports as `SodaHierForCausalLM` — a trust_remote_code torch port
+  (`hf_export/modeling_soda_hier.py`, copied into each export) that exposes
+  the exact factorized conditionals over the flat interleaved stream via
+  `forward` and two-stage sampling via `generate`, so blueberry-eval treats
+  both arms identically. Bit-parity vs the JAX model is enforced by
+  `test_hf_hier.py` (unit, both head-dim geometries) and
+  `hf_export/verify_hf_parity.py` (per-checkpoint).
+- Capability evals run in the `blueberry-soda-ext` conda env (definition:
+  `requirements-blueberry-soda-ext.txt` on blueberry-eval's `soda-extension`
+  branch). Until blueberry's loaders pass `trust_remote_code=True`, launch
+  hier evals as `echo y | python <script> ...`.
+
 ## Status and artifacts
 
 - Every run logs to W&B project `soda-extension`; run names carry the config
