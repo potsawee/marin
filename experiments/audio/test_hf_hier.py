@@ -18,9 +18,9 @@ import pytest
 import torch
 
 from experiments.audio.audio_vocab import (
+    AUDIO_END_ID,
     AUDIO_ID_LO,
     AUDIO_START_ID,
-    AUDIO_END_ID,
     BOS_ID,
     CODEBOOK_SIZE,
     TEXT_END_ID,
@@ -38,17 +38,33 @@ TOLERANCE_NATS = 2e-4
 GEOMETRIES = [
     pytest.param(
         AudioHierConfig(
-            hidden_dim=256, intermediate_dim=1024, num_layers=2, num_heads=2, num_kv_heads=2,
-            depth_hidden_dim=128, depth_intermediate_dim=512, depth_layers=2, depth_heads=1,
-            depth_kv_heads=1, z_loss_weight=None,
+            hidden_dim=256,
+            intermediate_dim=1024,
+            num_layers=2,
+            num_heads=2,
+            num_kv_heads=2,
+            depth_hidden_dim=128,
+            depth_intermediate_dim=512,
+            depth_layers=2,
+            depth_heads=1,
+            depth_kv_heads=1,
+            z_loss_weight=None,
         ),
         id="head128",
     ),
     pytest.param(
         AudioHierConfig(
-            hidden_dim=256, intermediate_dim=1024, num_layers=2, num_heads=2, num_kv_heads=2,
-            depth_hidden_dim=224, depth_intermediate_dim=896, depth_layers=2, depth_heads=2,
-            depth_kv_heads=2, z_loss_weight=None,
+            hidden_dim=256,
+            intermediate_dim=1024,
+            num_layers=2,
+            num_heads=2,
+            num_kv_heads=2,
+            depth_hidden_dim=224,
+            depth_intermediate_dim=896,
+            depth_layers=2,
+            depth_heads=2,
+            depth_kv_heads=2,
+            z_loss_weight=None,
         ),
         id="head112-dd448-quirk",
     ),
