@@ -17,6 +17,8 @@ import dataclasses
 import logging
 
 import numpy as np
+import torch
+from transformers import AutoModelForCausalLM
 
 from experiments.audio.eval_audio_nll import (
     DEFAULT_EVAL_PARQUET,
@@ -37,14 +39,9 @@ TOLERANCE_NATS = 1e-3
 
 
 def torch_bucket_totals(hf_dir: str, docs) -> dict[str, tuple[float, int]]:
-    import torch
-    from transformers import AutoModelForCausalLM
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = (
-        AutoModelForCausalLM.from_pretrained(hf_dir, torch_dtype=torch.float32, trust_remote_code=True)
-        .to(device)
-        .eval()
+        AutoModelForCausalLM.from_pretrained(hf_dir, torch_dtype=torch.float32, trust_remote_code=True).to(device).eval()
     )
     totals: dict[str, tuple[float, int]] = {}
     with torch.no_grad():

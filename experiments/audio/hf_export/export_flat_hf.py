@@ -24,8 +24,11 @@ import argparse
 import json
 import logging
 
-from levanter.main.export_lm_to_hf import ConvertLmConfig, main as export_main
+import torch
+from levanter.main.export_lm_to_hf import ConvertLmConfig
+from levanter.main.export_lm_to_hf import main as export_main
 from levanter.trainer import TrainerConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from experiments.audio.audio_vocab import BOS_ID, FULL_VOCAB, TOKENIZER_ID
 from experiments.audio.hf_export.run_registry import RunHandle, flat_runs, resolve
@@ -72,9 +75,6 @@ def _assert_export(handle: RunHandle, cfg: dict) -> None:
 
 def _assert_loadable(handle: RunHandle) -> None:
     """Reload with transformers and assert weights + tokenizer are exactly right."""
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
     tok = AutoTokenizer.from_pretrained(handle.hf_out_dir)
     if len(tok) != FULL_VOCAB:
         raise AssertionError(f"{handle.run}: exported tokenizer len {len(tok)} != {FULL_VOCAB}")

@@ -4,7 +4,9 @@ The campaign registry: what each experiment (P1, P1b, P1c, P2, P3, P4) asks,
 what is fixed, what varies, and how to read the result. Design rationale and
 provenance for every shared choice lives in `DECISIONS.md`; file roles in
 `README.md`; live run status in `PROGRESS.local.md` (untracked) and the
-W&B project `soda-extension` (entity `potsawee`).
+W&B project `soda-extension` (entity `potsawee`). **The findings narrative —
+full result tables and interpretation across experiments — is
+`RESEARCH-WRITEUP.md`; this registry and that write-up go hand in hand.**
 
 ## The research question
 
@@ -108,6 +110,15 @@ Exact per-run configs (params, batch, steps, lr): run
 - **Read-out.** With P1/P1b it gives main effects and the interaction term of
   {arch} x {weighting} on both metrics. Optional: run last; skip only if GPUs
   are scarce.
+- **Result (2026-07-10).** p1c-flat **653.4** bits/audio-second — Moshi
+  weighting costs *flat* 91 of the 96-bit P1 gap, while it costs *hier* only
+  26 (658.2 vs p1b's 631.8). The 2x2 is strongly non-additive (interaction
+  ≈ −65 bits/audio-second): **the depth factorization and the loss weighting
+  are partially redundant ways of de-prioritizing acoustics.** On
+  capabilities the same diagonal is monotone in the other direction — ASR-0s
+  37.1 (flat-unif) → 28.5 (flat-moshi) → 22.5 (hier-unif) → 19.4 (hier-moshi)
+  — and tBLIMP shows a floor: all cells except flat-uniform tie at ~64.5%.
+  JSON: `results/p1c/`; interpretation: RESEARCH-WRITEUP.md §2.2.
 
 ## P2 — width sweep at 3e18 (`exp_isoflop_sweep.py`)
 
@@ -123,10 +134,15 @@ Exact per-run configs (params, batch, steps, lr): run
   stated per-width — that itself is a finding).
 - **Read-out.** Per-arm isoflop curve (bits/audio-second vs d) at 3e18; the
   minimum per arm is that arm's frontier point for the headline figure.
-- **Partial result (2026-07-10).** p2-flat-d896 **562.2** bits/audio-second —
-  a dead tie with p1-flat d768 (562.6): the flat isoflop curve is flat between
-  d768 and d896 at 3e18 (optimum is a plateau, not a peak). d512 pair + hier
-  d896 still training. JSON: `results/p2/`.
+- **Result (2026-07-10, complete).** Both isoflop curves are **plateaus, not
+  peaks** — flat: 567.7 / 562.6 / 562.2 and hier: 668.1 / 658.2 / 657.2
+  bits/audio-second at d512/768/896. The flat-vs-hier NLL ordering is stable
+  at every width (~17%). Capabilities are NOT width-flat, though:
+  p2-hier-d896 is the campaign's best model (ASR 16.1/15.1 WER), while
+  p2-flat-d512's ASR collapses (46.9 0-shot, 49.6 2-shot — the only 2-shot
+  inversion in the campaign; plausibly its 4096-token window straining under
+  two-shot audio prompts, which hier's 1024-step window never feels).
+  JSONs: `results/p2/`; interpretation: RESEARCH-WRITEUP.md §2.3.
 - **Epoch caveat (writeup must flag).** p2-hier-d512 is the campaign's only
   multi-epoch run: 3.68B backbone steps needed vs 2.48B in the corpus =
   **1.48 epochs** (the hier stream is ~6.3x shorter than the flat one for the
@@ -137,6 +153,8 @@ Exact per-run configs (params, batch, steps, lr): run
   conservative: repeated data is slightly worse than fresh at ~1.5 epochs, so
   it can only understate hier at d512, not manufacture a hier win. Holdout is
   untouched by repetition (split by base-utterance-id at preprocessing).
+  *Empirical closure:* p2-hier-d512 sits exactly on the hier width trend on
+  every metric — the 1.48 epochs visibly cost nothing.
 
 ## P3 — depth-transformer allocation (Arm H only; `exp_depth_ablation.py`)
 
@@ -153,6 +171,14 @@ Exact per-run configs (params, batch, steps, lr): run
   (p3-large) wastes budget the backbone could use.
 - **Read-out.** bits/audio-second (and its per-codebook split) vs depth
   allocation; strengthens or bounds the Arm-H side of the headline claim.
+- **Result (2026-07-10).** The default allocation sits at the knee:
+  p3-small (dd256L2) **673.1** vs p1-hier (dd384L4) 658.2 vs p3-large
+  (dd512L6) **656.8** bits/audio-second — shrinking depth costs 15,
+  growing it buys 1.4. Capabilities are nearly insensitive to depth size
+  (p3-small even posts the best hier sWUGGY-sem 64.7%, sSC 53.0%, tBLIMP
+  65.6%) — everything the benchmarks measure lives in the backbone/semantic
+  stream. The "you sized the hier baseline's depth badly" review is answered.
+  JSONs: `results/p3/`; interpretation: RESEARCH-WRITEUP.md §2.4.
 
 ## P4 — 1e18 anchors (`exp_isoflop_sweep.py`)
 
@@ -188,6 +214,29 @@ Exact per-run configs (params, batch, steps, lr): run
    KV length 8T; hier: fwd(N_backbone) + 7 x fwd(N_depth) and KV length T.
    Uses `audio_flops.py` accountants; no new runs.
 
+## Capability results (blueberry-eval suite, 2026-07-10)
+
+All 12 runs evaluated end-to-end through blueberry-eval (branch
+`soda-extension`, env `blueberry-soda-ext`): ASR 0/2-shot WER (LibriSpeech
+test-clean), paired-likelihood tasks in TWO scoring variants (all-tokens
+uniform and semantic-only), text tasks, and the blueberry NLL battery.
+**Canonical numbers: `results/campaign_results.csv`; the full table and all
+interpretation live in `RESEARCH-WRITEUP.md` Part 2** (this registry does
+not duplicate them). Registry-level capsule:
+
+- Hierarchical+Moshi wins ASR (best: p2-hier-d896, 16.1/15.1 WER) and every
+  above-chance semantic/lexical/text task; flattened wins the acoustic axis
+  (uniform-scored SALMon + all acoustic-NLL components). See
+  RESEARCH-WRITEUP.md §2.1 and Part 1 for why a single scalar NLL cannot
+  arbitrate between the arms (measure-dependence).
+- The semantic-only scoring variant matters: sWUGGY +6.4 points mean,
+  SALMon −3.2 (and SALMon's arm ranking flips under semantic scoring);
+  sBLIMP/sSC are at chance at these budgets under both variants.
+- Replication anchor vs the old-SODA twin of p1-flat
+  (Nemotron-inclusive mix): likelihood tasks reproduce within ~1 point;
+  tBLIMP dips (62.0 vs 64.2, less text data) and ASR improves sharply
+  (37.1 vs 58.1, more paired audio per token) — a data-mix effect.
+
 ## HF export + capability-eval bridge
 
 Any run (and any future HERO run registered in an exp script's `RUNS`) can be
@@ -213,17 +262,25 @@ bash experiments/audio/launchers/run_parity.sh p1-flat 16         # HF-vs-JAX NL
   `hf_export/verify_hf_parity.py` (per-checkpoint).
 - Capability evals run in the `blueberry-soda-ext` conda env (definition:
   `requirements-blueberry-soda-ext.txt` on blueberry-eval's `soda-extension`
-  branch). Until blueberry's loaders pass `trust_remote_code=True`, launch
-  hier evals as `echo y | python <script> ...`.
+  branch). All blueberry loaders (model + tokenizer + lm-eval `--model_args`)
+  pass `trust_remote_code=True`, so hier checkpoints run with no prompt; see
+  blueberry's `README-steps-soda-extension.md` for the full workflow.
 
 ## Status and artifacts
 
+**Campaign complete (2026-07-10): all 12 runs trained to their final step,
+NLL-evaluated, HF-exported, and capability-evaluated.** Remaining phases:
+analysis figures, inference-economics, writeup, HF release (user-curated).
+
 - Every run logs to W&B project `soda-extension`; run names carry the config
   hash (resume-safe). Checkpoints:
-  `$MARIN_PREFIX/audio2-runs/<run>/checkpoints/<run>/step-N` (+ `hf/` export).
-- Post-hoc eval JSONs are committed under `experiments/audio/results/`.
-- P1 done (see above). P1b/P1c/P2/P3/P4 launch via
-  `launchers/launch_campaign.sh`: all 10 remaining jobs, 1 GPU each, in two
-  tiers — P2+P1b float across jagupard32–36 (free Ampere GPUs, start now),
-  P4+P3+P1c float across jagupard37–39 (preferred Ada GPUs, start as they
-  free). Node preference: 37–39 first, 32–36 fallback (all 48GB).
+  `$MARIN_PREFIX/audio2-runs/<run>/checkpoints/<run>/step-N` + verified
+  `hf/step-N` export per run.
+- NLL eval JSONs: `experiments/audio/results/p{1,1b,1c,2,3,4}/`; combined
+  NLL+capability matrix: `experiments/audio/results/campaign_results.csv`.
+- Raw capability outputs (per-sample logs, transcripts, stats):
+  `blueberry-eval/auto_evals/soda-extension/<run_id>-step<N>/`.
+- Known holes, accepted: TTS WER/SIM not run (tts1/tts2 excluded from `all`);
+  HellaSwag/MMLU absent for hier checkpoints (old-transformers lm-eval env
+  can't read the 5.x-saved tokenizer_class) and expected ≈chance at these
+  budgets anyway.

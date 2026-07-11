@@ -26,6 +26,8 @@ so it is a drop-in for likelihood evals that gather next-token log-probs from
   verbatim).
 """
 
+from typing import ClassVar
+
 import torch
 import torch.nn as nn
 from transformers import PreTrainedModel
@@ -68,9 +70,9 @@ def _group_steps(ids: torch.Tensor, audio_id_lo: int, num_codebooks: int):
 
 class SodaHierForCausalLM(PreTrainedModel):
     config_class = SodaHierConfig
-    _no_split_modules = ["Qwen3DecoderLayer"]
+    _no_split_modules: ClassVar[list[str]] = ["Qwen3DecoderLayer"]
     main_input_name = "input_ids"
-    _tied_weights_keys = []
+    _tied_weights_keys: ClassVar[list[str]] = []
 
     def __init__(self, config: SodaHierConfig):
         super().__init__(config)
@@ -152,9 +154,7 @@ class SodaHierForCausalLM(PreTrainedModel):
             ids = input_ids[b]
             if attention_mask is not None:
                 length = int(attention_mask[b].sum())
-                logits_b = torch.zeros(
-                    (ids.shape[0], self.config.vocab_size), dtype=torch.float32, device=ids.device
-                )
+                logits_b = torch.zeros((ids.shape[0], self.config.vocab_size), dtype=torch.float32, device=ids.device)
                 logits_b[:length] = self._forward_one(ids[:length])
                 rows.append(logits_b)
             else:

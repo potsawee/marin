@@ -19,10 +19,11 @@ from pathlib import Path
 
 import jax.random as jrandom
 import numpy as np
+import torch
 from haliax.state_dict import save_state_dict, to_torch_compatible_state_dict
 from levanter.checkpoint import load_checkpoint
 from levanter.utils.jax_utils import local_cpu_mesh
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from experiments.audio.audio_vocab import (
     AUDIO_ID_LO,
@@ -126,9 +127,6 @@ def convert_run(run: str, step: int | None = None) -> RunHandle:
 
 
 def _assert_loadable(handle: RunHandle) -> None:
-    import torch
-    from transformers import AutoModelForCausalLM
-
     model, info = AutoModelForCausalLM.from_pretrained(
         handle.hf_out_dir, torch_dtype=torch.float32, trust_remote_code=True, output_loading_info=True
     )
