@@ -36,6 +36,7 @@ from experiments.audio.audio_vocab import (
     UNIFIED_VOCAB,
 )
 from experiments.audio.hf_export.configuration_soda_hier import SodaHierConfig
+from experiments.audio.hf_export.export_flat_hf import patch_tokenizer_class
 from experiments.audio.hf_export.run_registry import RunHandle, hier_runs, resolve
 from experiments.audio.model_hier import AudioHierConfig, AudioHierModel
 
@@ -120,6 +121,7 @@ def convert_run(run: str, step: int | None = None) -> RunHandle:
     for name in ("configuration_soda_hier.py", "modeling_soda_hier.py"):
         shutil.copy(pkg / name, out / name)
     AutoTokenizer.from_pretrained(TOKENIZER_ID).save_pretrained(out)
+    patch_tokenizer_class(str(out / "tokenizer_config.json"))
 
     _assert_loadable(handle)
     logger.info("%s: conversion verified at %s", run, handle.hf_out_dir)

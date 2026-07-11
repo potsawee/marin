@@ -49,6 +49,20 @@ def _patch_rope_to_legacy_keys(config_path: str) -> dict:
     return cfg
 
 
+def patch_tokenizer_class(tokenizer_config_path: str) -> None:
+    """Rewrite ``tokenizer_class`` to ``PreTrainedTokenizerFast``, in place.
+
+    transformers 5 saves the 5.x-only class name ``TokenizersBackend``, which
+    4.x loaders cannot resolve; ``PreTrainedTokenizerFast`` loads identically
+    under both majors.
+    """
+    with open(tokenizer_config_path) as f:
+        cfg = json.load(f)
+    cfg["tokenizer_class"] = "PreTrainedTokenizerFast"
+    with open(tokenizer_config_path, "w") as f:
+        json.dump(cfg, f, indent=2, sort_keys=True)
+
+
 def _assert_export(handle: RunHandle, cfg: dict) -> None:
     model = handle.config.flat_model
     expect = {
@@ -109,6 +123,7 @@ def export_run(run: str, step: int | None = None) -> RunHandle:
         )
     )
     cfg = _patch_rope_to_legacy_keys(f"{handle.hf_out_dir}/config.json")
+    patch_tokenizer_class(f"{handle.hf_out_dir}/tokenizer_config.json")
     _assert_export(handle, cfg)
     _assert_loadable(handle)
     logger.info("%s: export verified at %s", run, handle.hf_out_dir)
