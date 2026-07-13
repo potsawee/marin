@@ -126,6 +126,31 @@ Exact per-run configs (params, batch, steps, lr): run
   SIM 0.332 → 0.223 — the 2x2's worst TTS cell.
   JSON: `results/p1c/`; interpretation: RESEARCH-WRITEUP.md §2.2.
 
+## P5 — hier, per-codebook decay weighting (HERO pilot; `exp_hero.py`)
+
+- **Question.** The 2x2 casts hier moshi-vs-uniform as a semantics-vs-
+  generation trade. Does a *graded* acoustic weighting escape it rather than
+  interpolate it? Gates the loss recipe for the SODA-Hier release run.
+- **Fixed.** Everything in p1-hier (3e18, d=768, dd384L4, audio2 corpus,
+  full eval battery) — a clean third weighting point on the p1/p1b anchors.
+- **Varies.** Acoustic weights only: flat 100/100/1 (moshi) → geometric decay
+  `w_k = 100^(1−k/7)` (semantic 100; cb1..cb7 = 51.8/26.8/13.9/7.2/3.7/1.9/1.0;
+  text 100). Precedent: VoiceCraft α=(5,1,0.5,0.1). Implemented as
+  `AudioHierConfig.acoustic_weights` (tests in `test_model_hier.py`).
+- **Gate.** Must land between p1-hier (moshi) and p1b-hier (uniform) on both
+  the semantic and generation axes; fall back to uniform if it inherits the
+  worst of both.
+- **Result (2026-07-12) — PASS, better than the gate: a Pareto win over
+  moshi.** Matches/beats moshi on every semantic metric — ASR-0s **18.9**
+  (moshi 19.4 / uniform 22.5; campaign best), tBLIMP **65.8** (best), tSC
+  **63.1** (best), semantic NLL **2.485** (best), sWUGGY 57.7 ≈ 57.9 — while
+  recovering most of the moshi→uniform generation gap: TTS-WER 29.6 → **23.1**,
+  TTS-SIM 0.230 → **0.290**, SALMon 66.7 → 67.9, at 100% termination. Models
+  cb1 as well as uniform (acoustic-cb1 NLL 4.39 ≈ 4.40) while keeping moshi's
+  semantic organization; pays only on cb7 (worst of the three). **Selected as
+  the SODA-Hier release recipe.** Row in `results/campaign_results.csv`
+  (p5-decay); interpretation: RESEARCH-WRITEUP.md §2.2; HF export + parity OK.
+
 ## P2 — width sweep at 3e18 (`exp_isoflop_sweep.py`)
 
 - **Question.** Is the P1 conclusion an artifact of d=768, and where is each

@@ -189,7 +189,7 @@ pair-specific: every hierarchical run in the campaign terminates on 100% of
 prompts, while four of five flattened runs drop 24–71% (gen% column
 above).
 
-### 2.2 What does loss weighting do? (2x2: p1, p1b, p1c)
+### 2.2 What does loss weighting do? (2x2: p1, p1b, p1c; + decay p5)
 
 **On the flattened arm, weighting is a large, double-edged lever.** Adding
 Moshi weighting (p1-flat → p1c-flat) buys most of the hierarchical arm's
@@ -223,6 +223,26 @@ where the acoustic axis is load-bearing, and both moshi-weighted cells pay
 for their tilted measure with worse, less reliable generation (2x2
 TTS-WER: flat-unif 31.2, flat-moshi 66.7, hier-moshi 29.6, hier-unif
 17.8).
+
+**A third hierarchical recipe — per-codebook decay — Pareto-dominates
+moshi.** The 2x2 poses moshi vs uniform as a semantics-vs-generation
+trade; p5-hier (3e18/d768) tests whether a graded weighting escapes it.
+Instead of flat 100/100/1 (moshi) or 1/1/1 (uniform), the acoustic
+codebooks get geometrically decaying weights `w_k = 100^(1−k/7)` (cb1≈52 …
+cb7=1; VoiceCraft's α=(5,1,0.5,0.1) is the same shape over EnCodec's 4
+levels), concentrating the ~51% per-frame acoustic loss mass (vs uniform
+87.5% / moshi 6.5%) on the perceptually dominant early codebooks and
+starving the late residuals. The result matches or beats **moshi on every
+semantic axis** — ASR-0s 18.9 (vs 19.4 moshi / 22.5 uniform; campaign
+best), tBLIMP 65.8 (best), tSC 63.1 (best), semantic NLL 2.485 (best),
+sWUGGY 57.7 ≈ 57.9 — while recovering most of the moshi→uniform
+**generation** gap: TTS-WER 29.6→23.1, TTS-SIM 0.230→0.290, SALMon
+66.7→67.9, at 100% termination. Mechanistically it models cb1 as well as
+uniform (acoustic-cb1 NLL 4.39 ≈ 4.40) yet keeps moshi's semantic
+organization — the graded weight buys both endpoints' strengths on the
+hierarchical arm, at the cost only of the highest-order residual (cb7 NLL
+5.06, worst of the three). This is the recipe selected for the SODA-Hier
+release run (Part 3).
 
 ### 2.3 Varying the backbone size at fixed FLOPs (d = 512 / 768 / 896)
 
