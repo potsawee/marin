@@ -65,11 +65,21 @@ class AudioHierConfig:
     depth_heads: int = 3
     depth_kv_heads: int = 3
     rope: RotaryEmbeddingsConfig = field(default_factory=Llama3RotaryEmbeddingsConfig)
-    # loss recipe (Moshi defaults: alpha-=100 on text+semantic, 1 on acoustic)
+    # loss recipe (Moshi defaults: alpha-=100 on text+semantic, 1 on acoustic).
+    # acoustic_weights, when set, gives each acoustic codebook cb1..cb7 its own
+    # weight (VoiceCraft-style decay) and takes precedence over alpha_acoustic.
     alpha_text: float = 100.0
     alpha_semantic: float = 100.0
     alpha_acoustic: float = 1.0
+    acoustic_weights: tuple[float, ...] | None = None
     z_loss_weight: float | None = 1e-4
+
+    def __post_init__(self):
+        if self.acoustic_weights is not None and len(self.acoustic_weights) != NUM_CODEBOOKS - 1:
+            raise ValueError(
+                f"acoustic_weights must have {NUM_CODEBOOKS - 1} entries (cb1..cb{NUM_CODEBOOKS - 1}), "
+                f"got {len(self.acoustic_weights)}"
+            )
 
     def backbone_config(self) -> Qwen3Config:
         return Qwen3Config(
@@ -236,11 +246,16 @@ class AudioHierModel(eqx.Module):
         # text and the four block-marker specials share alpha-_text
         alpha_bb = jnp.where(is_sem, cfg.alpha_semantic, cfg.alpha_text)
         w_bb = parts["w_backbone"].astype(jnp.float32) * alpha_bb
-        w_dep = parts["w_depth"].astype(jnp.float32)[..., None] * cfg.alpha_acoustic
+        if cfg.acoustic_weights is not None:
+            alpha_dep = jnp.asarray(cfg.acoustic_weights, dtype=jnp.float32)
+        else:
+            alpha_dep = jnp.full((NUM_CODEBOOKS - 1,), cfg.alpha_acoustic, dtype=jnp.float32)
+        # (.., position, 7): every frame contributes 7 acoustic CE terms, each
+        # carrying its codebook's weight in both numerator and weight mass
+        w_dep = parts["w_depth"].astype(jnp.float32)[..., None] * alpha_dep
 
         num = (parts["ce_backbone"] * w_bb).sum() + (parts["ce_depth"] * w_dep).sum()
-        # every frame contributes 7 acoustic CE terms to the weight mass
-        denom = w_bb.sum() + w_dep.sum() * (NUM_CODEBOOKS - 1)
+        denom = w_bb.sum() + w_dep.sum()
         return num / jnp.maximum(denom, 1.0)
 
 

@@ -34,6 +34,7 @@ from levanter.trainer import TrainerConfig
 
 from experiments.audio.data import AudioStepDataset, AudioStepExample
 from experiments.audio.eval_audio_nll import DEFAULT_EVAL_PARQUET, eval_flat, eval_hier, load_eval_docs, summarize
+from experiments.audio.exp_hero import DECAY100
 from experiments.audio.model_hier import AudioHierConfig, AudioHierModel
 from experiments.audio.train_audio_lm import AudioTrainConfig, main
 
@@ -176,6 +177,29 @@ def rung_depth0() -> None:
     print(f"RUNG depth0 PASS: crippled {crippled_loss:.3f} >= full {full_loss:.3f}")
 
 
+def rung_decay() -> None:
+    """Arm H with VoiceCraft-style per-codebook decay weights trains end-to-end.
+
+    The decay objective re-tilts the loss mass (~51% acoustic vs moshi's ~6.5%),
+    so the absolute values differ from rung_overfit; the contract is that the
+    weighted joint loss trains down into the same plausible band.
+    """
+    run_id = "smoke-armh-decay"
+    _fresh(run_id)
+    cfg = AudioTrainConfig(
+        arm="hier",
+        data_root=MINI_DATA_ROOT,
+        sources=MINI_SOURCES,
+        trainer=_trainer(run_id, steps=300, batch=8),
+        optimizer=_optimizer(3e-3),
+        hier_model=dataclasses.replace(TINY_HIER, acoustic_weights=DECAY100),
+    )
+    main(cfg)
+    final = _final_train_loss(run_id)
+    assert 0.5 < final < 7.0, f"hier decay final loss {final:.3f} implausible (init ~9.7; 0.0 => no-op/resume)"
+    print(f"RUNG decay PASS: final joint loss {final:.3f} (init ~9.7)")
+
+
 def rung_floors() -> None:
     """Random-init CE floors match the head supports on REAL cached windows."""
     ds = AudioStepDataset.load(f"{MINI_DATA_ROOT}/arm_h/yodas/train").as_sync_dataset()
@@ -218,6 +242,7 @@ RUNGS = {
     "armf-tiny": rung_armf_tiny,
     "overfit": rung_overfit,
     "depth0": rung_depth0,
+    "decay": rung_decay,
     "floors": rung_floors,
     "evaldet": rung_evaldet,
 }

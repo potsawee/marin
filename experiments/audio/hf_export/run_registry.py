@@ -3,7 +3,7 @@
 
 """Resolve campaign run names to trained configs and on-disk checkpoint paths.
 
-The three exp scripts' RUNS registries are the single source of truth for run
+The exp scripts' RUNS registries are the single source of truth for run
 geometry; ``finalize_run`` stamps ``trainer.id`` (the hashed run-dir name) and
 the checkpointer base path, so everything here is derived, never re-specified.
 """
@@ -12,10 +12,15 @@ import os
 import re
 from dataclasses import dataclass
 
-from experiments.audio import exp_depth_ablation, exp_isoflop_headline, exp_isoflop_sweep
+from experiments.audio import exp_depth_ablation, exp_hero, exp_isoflop_headline, exp_isoflop_sweep
 from experiments.audio.train_audio_lm import AudioTrainConfig
 
-ALL_RUNS = {**exp_isoflop_headline.RUNS, **exp_isoflop_sweep.RUNS, **exp_depth_ablation.RUNS}
+ALL_RUNS = {
+    **exp_isoflop_headline.RUNS,
+    **exp_isoflop_sweep.RUNS,
+    **exp_depth_ablation.RUNS,
+    **exp_hero.RUNS,
+}
 
 _STEP_DIR = re.compile(r"^step-(\d+)$")
 
