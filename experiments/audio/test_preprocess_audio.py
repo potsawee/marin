@@ -60,6 +60,18 @@ def test_parse_doc_rejects_partial_frame():
         parse_doc(flat[:-3])  # truncates mid-frame inside the audio run
 
 
+def test_parse_doc_rejects_non_frame_major_audio_block():
+    """Corrupt docs whose audio run is frame-length-aligned but out of codebook
+    layout must skip as DocParseError, not kill the worker pool (the bare
+    ValueError from lm_ids_to_codes crashed prep-yodas-3 on the v4 shards)."""
+    rng = np.random.default_rng(2)
+    flat, _ = synthetic_doc(frames=2, text_ids=[7], rng=rng)
+    a = flat.index(AUDIO_START_ID) + 1  # first audio id
+    flat[a], flat[a + 1] = flat[a + 1], flat[a]  # cross-slot swap breaks the layout
+    with pytest.raises(DocParseError):
+        parse_doc(flat)
+
+
 @pytest.mark.parametrize(
     ("doc_id", "base"),
     [

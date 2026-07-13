@@ -24,6 +24,21 @@ Run on a CPU node (no GPU needed), e.g.:
 
     uv run python experiments/audio/preprocess_audio.py \
         --output $MARIN_PREFIX/audio2 --workers 6
+
+For large corpora the build parallelizes across Slurm jobs by (source, chunk):
+each invocation builds an independent sub-source cache named
+``{source}-c{i:02d}`` from every ``N``-th file of the source, e.g.
+
+    ... preprocess_audio.py --output $MARIN_PREFIX/audio3 --arms h \
+        --yodas-pick $DATA/yodas-shard-pick-v3.json \
+        --emilia-manifest $DATA/emilia-en-file-pick-v3.json \
+        --token-budget 131e9 --source yodas --chunk 0/6
+
+The keep/holdout threshold is always computed over the FULL source file list,
+so chunking never changes which documents are kept. Sub-source mixture weights
+are set token-proportionally from the per-chunk manifests (exp_hero.py). After
+all chunks finish, ``--aggregate`` combines the chunk manifests into
+``{output}/manifest.json`` and asserts the realized mix.
 """
 
 import argparse
@@ -116,7 +131,13 @@ def flat_ids_to_steps(flat_ids: np.ndarray) -> np.ndarray:
             if len(run) % NUM_CODEBOOKS != 0:
                 raise DocParseError(f"audio run of length {len(run)} not a multiple of {NUM_CODEBOOKS}")
             frames = run.reshape(-1, NUM_CODEBOOKS)
-            lm_ids_to_codes(frames)  # validates per-slot codebook blocks
+            try:
+                lm_ids_to_codes(frames)  # validates per-slot codebook blocks
+            except ValueError as e:
+                # e.g. "ids are not a frame-major audio block": corrupt upstream
+                # doc (first seen in the v4 yodas shards) - skip it, don't kill
+                # the worker pool
+                raise DocParseError(str(e)) from e
             steps.append(frames)
         else:
             text = np.full((len(run), NUM_CODEBOOKS), PAD, dtype=np.int32)
@@ -179,14 +200,24 @@ def _worker_init():
     _WORKER_TOKENIZER = AutoTokenizer.from_pretrained(TOKENIZER_ID)
 
 
-def _process_file(task: tuple[str, int]) -> dict:
-    """Parse one parquet file into compact concatenated arrays of the KEPT docs.
+# Rows per worker task. Task granularity used to be a whole parquet file, but
+# at the HERO corpus's ~94% keep-rate one 11G yodas file parses into ~30G of
+# int32 arrays per worker - 6 workers OOM-killed 128G build jobs and
+# memory-thrashed co-resident chunks into their time limit (16139423/25/72,
+# 2026-07-12). Row-range tasks cap a worker's result at a few GB; the skipped
+# prefix of each slice is re-decoded (the files are single-row-group) but
+# never tokenized, which costs minutes per chunk.
+_ROWS_PER_TASK = 1000
+
+
+def _process_rows(task: tuple[str, int, int, int]) -> dict:
+    """Parse rows [row_lo, row_hi) of one parquet into compact KEPT-doc arrays.
 
     The keep/holdout decision happens before tokenization (only ~keep-rate of
     rows are ever tokenized), and results ship back to the writer process as a
     handful of large arrays instead of per-doc objects.
     """
-    path, keep_buckets = task
+    path, row_lo, row_hi, keep_buckets = task
     doc_ids: list[str] = []
     splits: list[int] = []  # 0 = train, 1 = holdout
     frames_per_doc: list[int] = []
@@ -195,8 +226,19 @@ def _process_file(task: tuple[str, int]) -> dict:
     skipped = 0
     holdout_below = HOLDOUT_PERMILLE * (_HASH_BUCKETS // 1000)
     pf = pq.ParquetFile(path)
-    for batch in pf.iter_batches(batch_size=256, columns=["id", "text"]):
-        rows = batch.to_pylist()
+    cursor = 0
+    # batch_size 64 (was 256): Emilia shards from the v4 pick carry documents up
+    # to ~330k tokens; a 256-doc tokenizer batch of those spikes several GB per
+    # worker and OOM-killed 8-worker/64G build jobs (2026-07-12, MaxRSS 66.5G,
+    # workers respawning in a loop and imap hanging on the killed slot).
+    for batch in pf.iter_batches(batch_size=64, columns=["id", "text"]):
+        lo, hi = cursor, cursor + batch.num_rows
+        cursor = hi
+        if hi <= row_lo:
+            continue  # decoded but before our slice: skip without tokenizing
+        if lo >= row_hi:
+            break
+        rows = batch.slice(max(row_lo - lo, 0), min(hi, row_hi) - max(lo, row_lo)).to_pylist()
         kept = []
         for row in rows:
             bucket = doc_hash_bucket(base_id_of(row["id"]))
@@ -219,7 +261,7 @@ def _process_file(task: tuple[str, int]) -> dict:
             flat_parts.append(flat)
             step_parts.append(codes8)
     if skipped:
-        logger.warning("%s: skipped %d malformed docs", path, skipped)
+        logger.warning("%s[%d:%d]: skipped %d malformed docs", path, row_lo, row_hi, skipped)
     flat_off = np.zeros(len(flat_parts) + 1, dtype=np.int64)
     np.cumsum([len(p) for p in flat_parts], out=flat_off[1:])
     steps_off = np.zeros(len(step_parts) + 1, dtype=np.int64)
@@ -235,9 +277,9 @@ def _process_file(task: tuple[str, int]) -> dict:
     }
 
 
-def source_specs(data_root: str, emilia_manifest: str) -> list[SourceSpec]:
+def source_specs(data_root: str, emilia_manifest: str, yodas_shards: list[str] | None = None) -> list[SourceSpec]:
     yodas = []
-    for shard in YODAS_SHARDS:
+    for shard in yodas_shards or YODAS_SHARDS:
         yodas.extend(sorted(str(p) for p in Path(data_root, "yodas2-mm-pretrain", shard).glob("*.parquet")))
     with open(emilia_manifest) as fh:
         picked = json.load(fh)["files"]
@@ -261,84 +303,205 @@ def keep_buckets_for(spec: SourceSpec, total_token_budget: float) -> int:
 
 def _flush_buffers(writers, flat_buf, window_buf, split: str, min_rows: int = 0) -> None:
     """Write buffered rows for one split in large batches (TensorStore round-trips are slow)."""
-    if len(flat_buf[split]) > min_rows:
+    if ("arm_f", split) in writers and len(flat_buf[split]) > min_rows:
         writers[("arm_f", split)].write_batch({"input_ids": flat_buf[split]})
         flat_buf[split].clear()
-    if len(window_buf[split]) > min_rows:
+    if ("arm_h", split) in writers and len(window_buf[split]) > min_rows:
         windows = window_buf[split]
         writers[("arm_h", split)].write_batch({k: [w[k] for w in windows] for k in ("codes8", "seg_ids")})
         window_buf[split].clear()
 
 
-def run(output: str, data_root: str, emilia_manifest: str, token_budget: float, workers: int) -> dict:
-    specs = source_specs(data_root, emilia_manifest)
-    for spec in specs:
+def _build_source(
+    output: str, name: str, files: tuple[str, ...], keep: int, arms: tuple[str, ...], workers: int
+) -> dict:
+    """Build the caches for one (sub-)source; returns its stats dict."""
+    exemplar_f = {"input_ids": np.zeros((0,), dtype=np.int32)}
+    exemplar_h = {"codes8": np.zeros((0, NUM_CODEBOOKS), dtype=np.int32), "seg_ids": np.zeros((0,), dtype=np.int32)}
+    src_stats = {
+        "files": len(files),
+        "keep_buckets": keep,
+        "docs": {"train": 0, "holdout": 0},
+        "tokens": {"train": 0, "holdout": 0},
+        "frames": {"train": 0, "holdout": 0},
+    }
+    holdout_ids = []
+    tasks = [
+        (f, lo, min(lo + _ROWS_PER_TASK, nrows), keep)
+        for f in files
+        for nrows in (pq.ParquetFile(f).metadata.num_rows,)
+        for lo in range(0, nrows, _ROWS_PER_TASK)
+    ]
+
+    packers = {split: WindowPacker() for split in ("train", "holdout")}
+    with contextlib.ExitStack() as stack:
+        writers = {
+            (arm, split): stack.enter_context(
+                SerialCacheWriter(
+                    f"{output}/{arm}/{name}/{split}",
+                    exemplar_f if arm == "arm_f" else exemplar_h,
+                    shard_name=name,
+                )
+            )
+            for arm in arms
+            for split in ("train", "holdout")
+        }
+        flat_buf: dict[str, list[np.ndarray]] = {"train": [], "holdout": []}
+        window_buf: dict[str, list[dict[str, np.ndarray]]] = {"train": [], "holdout": []}
+
+        with mp.Pool(workers, initializer=_worker_init) as pool:
+            for result in pool.imap(_process_rows, tasks):
+                for i, doc_id in enumerate(result["doc_ids"]):
+                    split = "holdout" if result["splits"][i] else "train"
+                    flat = result["flat"][result["flat_off"][i] : result["flat_off"][i + 1]]
+                    codes8 = result["steps"][result["steps_off"][i] : result["steps_off"][i + 1]]
+                    if "arm_f" in arms:
+                        flat_buf[split].append(flat)
+                    if "arm_h" in arms:
+                        window_buf[split].extend(packers[split].add(codes8))
+                    src_stats["docs"][split] += 1
+                    src_stats["tokens"][split] += len(flat)
+                    src_stats["frames"][split] += int(result["frames"][i])
+                    if split == "holdout":
+                        holdout_ids.append({"id": doc_id, "source": name})
+                for split in ("train", "holdout"):
+                    _flush_buffers(writers, flat_buf, window_buf, split, min_rows=1024)
+        for split, packer in packers.items():
+            if "arm_h" in arms:
+                window_buf[split].extend(packer.flush())
+            _flush_buffers(writers, flat_buf, window_buf, split)
+    src_stats["holdout_ids"] = holdout_ids
+    logger.info("source %s done: docs=%s tokens=%s", name, src_stats["docs"], src_stats["tokens"])
+    return src_stats
+
+
+def run(
+    output: str,
+    data_root: str,
+    emilia_manifest: str,
+    token_budget: float,
+    workers: int,
+    *,
+    arms: tuple[str, ...] = ("arm_f", "arm_h"),
+    yodas_shards: list[str] | None = None,
+    source: str | None = None,
+    chunk: str | None = None,
+) -> dict:
+    """Build all sources (legacy, one process) or one (source, chunk) sub-source.
+
+    In chunk mode (``source`` + ``chunk="i/n"``) the keep threshold still comes
+    from the FULL source file list; only the file iteration is partitioned
+    (round-robin, deterministic), and the caches/manifest land under the
+    sub-source name ``{source}-c{i:02d}``.
+    """
+    specs = source_specs(data_root, emilia_manifest, yodas_shards)
+    checked = specs if source is None else [s for s in specs if s.name == source]
+    for spec in checked:
         if not spec.files:
             raise FileNotFoundError(f"no parquet files found for source {spec.name!r} under {data_root}")
 
-    exemplar_f = {"input_ids": np.zeros((0,), dtype=np.int32)}
-    exemplar_h = {"codes8": np.zeros((0, NUM_CODEBOOKS), dtype=np.int32), "seg_ids": np.zeros((0,), dtype=np.int32)}
+    if source is not None:
+        (spec,) = checked
+        keep = keep_buckets_for(spec, token_budget)
+        name = spec.name
+        files = spec.files
+        if chunk is not None:
+            ci, n = (int(x) for x in chunk.split("/"))
+            if not 0 <= ci < n:
+                raise ValueError(f"chunk index {ci} out of range for /{n}")
+            name = f"{spec.name}-c{ci:02d}"
+            files = spec.files[ci::n]
+        src_stats = _build_source(output, name, files, keep, arms, workers)
+        holdout_ids = src_stats.pop("holdout_ids")
+        chunk_manifest = {
+            "source": spec.name,
+            "name": name,
+            "chunk": chunk,
+            "token_budget": token_budget,
+            "l_steps": L_STEPS,
+            "holdout_permille": HOLDOUT_PERMILLE,
+            "train_tokens": src_stats["tokens"]["train"],
+            "stats": src_stats,
+        }
+        for arm in arms:
+            with open(f"{output}/{arm}/{name}/manifest.json", "w") as f:
+                json.dump(chunk_manifest, f, indent=1)
+        with open(f"{output}/holdout_ids-{name}.jsonl", "w") as f:
+            for rec in holdout_ids:
+                f.write(json.dumps(rec) + "\n")
+        return chunk_manifest
 
     stats: dict = {"sources": {}, "l_steps": L_STEPS, "holdout_permille": HOLDOUT_PERMILLE}
-    holdout_ids = []
-
+    all_holdout_ids = []
     for spec in specs:
         keep = keep_buckets_for(spec, token_budget)
-        stats["sources"][spec.name] = {
-            "files": len(spec.files),
-            "keep_buckets": keep,
-            "docs": {"train": 0, "holdout": 0},
-            "tokens": {"train": 0, "holdout": 0},
-            "frames": {"train": 0, "holdout": 0},
-        }
-        src_stats = stats["sources"][spec.name]
-        tasks = [(f, keep) for f in spec.files]
-
-        packers = {split: WindowPacker() for split in ("train", "holdout")}
-        with contextlib.ExitStack() as stack:
-            writers = {
-                (arm, split): stack.enter_context(
-                    SerialCacheWriter(
-                        f"{output}/{arm}/{spec.name}/{split}",
-                        exemplar_f if arm == "arm_f" else exemplar_h,
-                        shard_name=spec.name,
-                    )
-                )
-                for arm in ("arm_f", "arm_h")
-                for split in ("train", "holdout")
-            }
-            flat_buf: dict[str, list[np.ndarray]] = {"train": [], "holdout": []}
-            window_buf: dict[str, list[dict[str, np.ndarray]]] = {"train": [], "holdout": []}
-
-            with mp.Pool(workers, initializer=_worker_init) as pool:
-                for result in pool.imap(_process_file, tasks):
-                    for i, doc_id in enumerate(result["doc_ids"]):
-                        split = "holdout" if result["splits"][i] else "train"
-                        flat = result["flat"][result["flat_off"][i] : result["flat_off"][i + 1]]
-                        codes8 = result["steps"][result["steps_off"][i] : result["steps_off"][i + 1]]
-                        flat_buf[split].append(flat)
-                        window_buf[split].extend(packers[split].add(codes8))
-                        src_stats["docs"][split] += 1
-                        src_stats["tokens"][split] += len(flat)
-                        src_stats["frames"][split] += int(result["frames"][i])
-                        if split == "holdout":
-                            holdout_ids.append({"id": doc_id, "source": spec.name})
-                    for split in ("train", "holdout"):
-                        _flush_buffers(writers, flat_buf, window_buf, split, min_rows=1024)
-            for split, packer in packers.items():
-                window_buf[split].extend(packer.flush())
-                _flush_buffers(writers, flat_buf, window_buf, split)
-        logger.info("source %s done: %s", spec.name, src_stats)
+        src_stats = _build_source(output, spec.name, spec.files, keep, arms, workers)
+        all_holdout_ids.extend(src_stats.pop("holdout_ids"))
+        stats["sources"][spec.name] = src_stats
 
     Path(output).mkdir(parents=True, exist_ok=True)
     with open(f"{output}/holdout_ids.jsonl", "w") as f:
-        for rec in holdout_ids:
+        for rec in all_holdout_ids:
             f.write(json.dumps(rec) + "\n")
     stats["token_budget"] = token_budget
-    stats["yodas_shards"] = YODAS_SHARDS
+    stats["yodas_shards"] = yodas_shards or YODAS_SHARDS
     with open(f"{output}/manifest.json", "w") as f:
         json.dump(stats, f, indent=1)
     return stats
+
+
+def aggregate(output: str, mix_tolerance: float = 0.01) -> dict:
+    """Combine chunk manifests into {output}/manifest.json and assert the mix.
+
+    Reads every ``{output}/arm_*/*/manifest.json`` (chunk builds), sums per
+    parent source, and checks each source's realized train-token share is
+    within ``mix_tolerance`` of MIX_WEIGHTS.
+    """
+    manifests = {}
+    for path in sorted(Path(output).glob("arm_*/*/manifest.json")):
+        with open(path) as f:
+            m = json.load(f)
+        manifests[m["name"]] = m  # arms carry identical copies; last wins
+    if not manifests:
+        raise FileNotFoundError(f"no chunk manifests under {output}/arm_*/")
+
+    per_source: dict[str, dict] = {}
+    for m in manifests.values():
+        agg = per_source.setdefault(
+            m["source"],
+            {
+                "chunks": 0,
+                "files": 0,
+                "tokens": {"train": 0, "holdout": 0},
+                "frames": {"train": 0, "holdout": 0},
+                "docs": {"train": 0, "holdout": 0},
+            },
+        )
+        agg["chunks"] += 1
+        agg["files"] += m["stats"]["files"]
+        for split in ("train", "holdout"):
+            for key in ("tokens", "frames", "docs"):
+                agg[key][split] += m["stats"][key][split]
+
+    total_train = sum(s["tokens"]["train"] for s in per_source.values())
+    mix_realized = {name: s["tokens"]["train"] / total_train for name, s in per_source.items()}
+    for name, share in mix_realized.items():
+        if abs(share - MIX_WEIGHTS[name]) > mix_tolerance:
+            raise AssertionError(
+                f"{name}: realized mix {share:.3f} vs target {MIX_WEIGHTS[name]:.3f} (>±{mix_tolerance})"
+            )
+
+    combined = {
+        "sources": per_source,
+        "sub_sources": {name: m["train_tokens"] for name, m in sorted(manifests.items())},
+        "mix_realized": mix_realized,
+        "train_tokens_total": total_train,
+        "l_steps": L_STEPS,
+        "holdout_permille": HOLDOUT_PERMILLE,
+    }
+    with open(f"{output}/manifest.json", "w") as f:
+        json.dump(combined, f, indent=1)
+    return combined
 
 
 if __name__ == "__main__":
@@ -349,6 +512,31 @@ if __name__ == "__main__":
     parser.add_argument("--emilia-manifest", default=f"{DATA_ROOT}/emilia-en-file-pick-v2.json")
     parser.add_argument("--token-budget", type=float, default=16e9, help="total flattened-token target across sources")
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--arms", choices=["both", "f", "h"], default="both")
+    parser.add_argument("--yodas-pick", default=None, help="shard-pick json (dirs_all) overriding YODAS_SHARDS")
+    parser.add_argument("--source", choices=list(MIX_WEIGHTS), default=None, help="build only this source")
+    parser.add_argument("--chunk", default=None, help="i/n: build every n-th file of --source as sub-source c{i}")
+    parser.add_argument("--aggregate", action="store_true", help="combine chunk manifests + assert mix; no build")
     args = parser.parse_args()
-    result = run(args.output, args.data_root, args.emilia_manifest, args.token_budget, args.workers)
+    if args.aggregate:
+        print(json.dumps(aggregate(args.output), indent=1))
+        raise SystemExit(0)
+    if args.chunk is not None and args.source is None:
+        parser.error("--chunk requires --source")
+    yodas_shards = None
+    if args.yodas_pick:
+        with open(args.yodas_pick) as f:
+            yodas_shards = json.load(f)["dirs_all"]
+    arms = {"both": ("arm_f", "arm_h"), "f": ("arm_f",), "h": ("arm_h",)}[args.arms]
+    result = run(
+        args.output,
+        args.data_root,
+        args.emilia_manifest,
+        args.token_budget,
+        args.workers,
+        arms=arms,
+        yodas_shards=yodas_shards,
+        source=args.source,
+        chunk=args.chunk,
+    )
     print(json.dumps(result, indent=1))
