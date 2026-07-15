@@ -1,11 +1,11 @@
-# SODA-extension: Flattened vs. Hierarchical Factorization at Matched Compute
+# Findings: flattened vs. hierarchical factorization at matched compute
 
-Findings write-up for the next SODA paper revision. This document reports and
-interprets what we ran; the per-experiment registry (questions, fixed/varied
-factors, design provenance) is `EXPERIMENTS.md`, and every number below is
-reproducible from `results/` (per-run NLL JSONs + `campaign_results.csv`).
-The two documents go hand in hand: EXPERIMENTS.md answers "what exactly was
-run and why", this one answers "what did we learn".
+What the campaign taught us — the interpretation layer over the numbers,
+written as input for the SODA paper revision. The per-experiment registry
+(questions, fixed/varied factors, design provenance) is `EXPERIMENTS.md`, and
+every number below is reproducible from `results/` (per-run NLL JSONs +
+`campaign_results.csv`). The two documents go hand in hand: EXPERIMENTS.md
+answers "what exactly was run and why", this one answers "what did we learn".
 
 **Setup in one paragraph.** SODA (arXiv:2602.16687) flattens Mimi RVQ audio
 (8 codebooks/frame: 1 semantic + 7 acoustic, 12.5 Hz) into one token stream
@@ -329,10 +329,13 @@ both budgets): the 1e18 anchors are a faithful, cheaper preview of the
    while growing past the knee buys nothing anywhere.
 5. **Budget trends are stable**: 1e18 predicts 3e18's orderings exactly,
    supporting the use of small isoflop pilots for this design space.
-6. **Inference economics favor the hierarchy** (analytic): KV length T vs
-   8T, and per-frame decode of fwd(backbone) + 7·fwd(depth) vs 8·fwd(N) —
-   ~4.4x fewer decode FLOPs per generated second at p1 sizes (exact
-   accounting from `audio_flops.py` to accompany the final figure).
+6. **Inference economics favor the hierarchy**: KV length T vs 8T, and
+   per-frame decode of fwd(backbone) + 7·fwd(depth) vs 8·fwd(N) — **7.0x
+   fewer decode FLOPs per generated audio-second** at p1 sizes (exact
+   accounting via the `audio_flops.py` accountants at each arm's training
+   context: 47.4 vs 6.7 GFLOPs per audio-second; the flat model pays its
+   144,644-way head on all 8 tokens per frame, the hierarchy pays the
+   130,308-way head once per frame and 2,048-way heads within it).
 
 **Known holes and caveats.** Single seed per config; TTS scores for the
 four flattened runs with gen% < 100 cover only their terminating prompts

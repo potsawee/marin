@@ -6,7 +6,7 @@ provenance for every shared choice lives in `DECISIONS.md`; file roles in
 `README.md`; live run status in `PROGRESS.local.md` (untracked) and the
 W&B project `soda-extension` (entity `potsawee`). **The findings narrative —
 full result tables and interpretation across experiments — is
-`RESEARCH-WRITEUP.md`; this registry and that write-up go hand in hand.**
+`FINDINGS.md`; this registry and that write-up go hand in hand.**
 
 ## The research question
 
@@ -100,7 +100,7 @@ Exact per-run configs (params, batch, steps, lr): run
   acoustics improve across the board (ac1 4.57 → 4.40, ac7 4.94 → 4.71) but
   stay far above flat (3.58 / 4.41). TTS (2026-07-11): the campaign's best —
   **17.8 WER / 0.330 SIM** at 100% termination; the acoustic buy-back shows
-  up directly in generation (RESEARCH-WRITEUP.md §2.2).
+  up directly in generation (FINDINGS.md §2.2).
   JSON: `results/p1b/`.
 
 ## P1c — flat, Moshi weighting (optional; `exp_isoflop_headline.py`)
@@ -124,7 +124,7 @@ Exact per-run configs (params, batch, steps, lr): run
   The mirror axis is generation (2026-07-11): Moshi weighting wrecks flat's
   TTS — termination 76% → 35% of prompts, WER 31.2 → 66.7 on the survivors,
   SIM 0.332 → 0.223 — the 2x2's worst TTS cell.
-  JSON: `results/p1c/`; interpretation: RESEARCH-WRITEUP.md §2.2.
+  JSON: `results/p1c/`; interpretation: FINDINGS.md §2.2.
 
 ## P5 — hier, per-codebook decay weighting (HERO pilot; `exp_hero.py`)
 
@@ -149,7 +149,7 @@ Exact per-run configs (params, batch, steps, lr): run
   cb1 as well as uniform (acoustic-cb1 NLL 4.39 ≈ 4.40) while keeping moshi's
   semantic organization; pays only on cb7 (worst of the three). **Selected as
   the SODA-Hier release recipe.** Row in `results/campaign_results.csv`
-  (p5-decay); interpretation: RESEARCH-WRITEUP.md §2.2; HF export + parity OK.
+  (p5-decay); interpretation: FINDINGS.md §2.2; HF export + parity OK.
 
 ## P2 — width sweep at 3e18 (`exp_isoflop_sweep.py`)
 
@@ -176,7 +176,7 @@ Exact per-run configs (params, batch, steps, lr): run
   TTS (2026-07-11): hier is width-stable (32.2/29.6/30.0 WER, 100%
   termination), while flat's termination collapses with width (100/76/29%
   at d512/768/896) — only p2-flat-d512's TTS numbers are survivorship-free.
-  JSONs: `results/p2/`; interpretation: RESEARCH-WRITEUP.md §2.3.
+  JSONs: `results/p2/`; interpretation: FINDINGS.md §2.3.
 - **Epoch caveat (writeup must flag).** p2-hier-d512 is the campaign's only
   multi-epoch run: 3.68B backbone steps needed vs 2.48B in the corpus =
   **1.48 epochs** (the hier stream is ~6.3x shorter than the flat one for the
@@ -216,7 +216,7 @@ Exact per-run configs (params, batch, steps, lr): run
   module's acoustic deficit surfaces when the model must produce acoustics.
   The "you sized the hier baseline's depth badly" review is answered: the
   default is at the knee on both axes.
-  JSONs: `results/p3/`; interpretation: RESEARCH-WRITEUP.md §2.4.
+  JSONs: `results/p3/`; interpretation: FINDINGS.md §2.4.
 
 ## P4 — 1e18 anchors (`exp_isoflop_sweep.py`)
 
@@ -261,19 +261,19 @@ WER + WavLM speaker-SIM; scored 2026-07-11), paired-likelihood tasks in TWO
 scoring variants (all-tokens uniform and semantic-only), text tasks, and the
 blueberry NLL battery.
 **Canonical numbers: `results/campaign_results.csv`; the full table and all
-interpretation live in `RESEARCH-WRITEUP.md` Part 2** (this registry does
+interpretation live in `FINDINGS.md` Part 2** (this registry does
 not duplicate them). Registry-level capsule:
 
 - Hierarchical+Moshi wins ASR (best: p2-hier-d896, 16.1/15.1 WER) and every
   above-chance semantic/lexical/text task; flattened wins the acoustic axis
   (uniform-scored SALMon + all acoustic-NLL components + TTS speaker-SIM).
-  See RESEARCH-WRITEUP.md §2.1 and Part 1 for why a single scalar NLL cannot
+  See FINDINGS.md §2.1 and Part 1 for why a single scalar NLL cannot
   arbitrate between the arms (measure-dependence).
 - TTS separates the arms on *reliability*: every hier run terminates on all
   1088 prompts; four of five flat runs fail to terminate on 24–71%
   (`tts_n_wavs` in the CSV — their WER/SIM carry survivorship bias). Best
   TTS model: p1b-hier (17.8 WER / 0.330 SIM) — acoustic down-weighting is
-  what hurts generation, on both arms (RESEARCH-WRITEUP.md §2.2).
+  what hurts generation, on both arms (FINDINGS.md §2.2).
 - The semantic-only scoring variant matters: sWUGGY +6.4 points mean,
   SALMon −3.2 (and SALMon's arm ranking flips under semantic scoring);
   sBLIMP/sSC are at chance at these budgets under both variants.
@@ -322,8 +322,8 @@ inference-economics, writeup, HF release (user-curated).
   hash (resume-safe). Checkpoints:
   `$MARIN_PREFIX/audio2-runs/<run>/checkpoints/<run>/step-N` + verified
   `hf/step-N` export per run.
-- NLL eval JSONs: `experiments/audio/results/p{1,1b,1c,2,3,4}/`; combined
-  NLL+capability matrix: `experiments/audio/results/campaign_results.csv`.
+- NLL eval JSONs: `experiments/audio/report/results/p{1,1b,1c,2,3,4}/`; combined
+  NLL+capability matrix: `experiments/audio/report/results/campaign_results.csv`.
 - Raw capability outputs (per-sample logs, transcripts, stats):
   `blueberry-eval/auto_evals/soda-extension/<run_id>-step<N>/`.
 - Known holes, accepted: TTS scores for the four flat runs with incomplete

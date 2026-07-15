@@ -19,7 +19,7 @@ document `flat_tokens == steps + 7 * frames` (asserted at preprocessing), so
 unweighted held-out NLL on identical documents is directly comparable.
 Held-out NLL is reported as a per-token-type *vector* (text, semantic,
 per-codebook acoustic) plus the uniform bits-per-audio-second aggregate;
-`RESEARCH-WRITEUP.md` Part 1 covers why no single scalar can rank across
+`report/FINDINGS.md` Part 1 covers why no single scalar can rank across
 arms and loss recipes. Compute accounting follows the SODA paper's axis:
 budget = 3 x forward FLOPs (`audio_flops.py`); the solver
 (`isoflop_audio_target.py`) ports the old sweep's derivation rules and is
@@ -34,15 +34,16 @@ corpus since 2026-07-13 (~17-day epoch). W&B project: `soda-extension`.
 
 ## Reading order
 
+The experimental record lives in `report/`:
+
 | doc | contents |
 |---|---|
-| `EXPERIMENTS.md` | campaign registry: what each experiment asks, fixed/varied factors, result capsule |
-| `RESEARCH-WRITEUP.md` | findings narrative: NLL measure-dependence (Part 1), the 12-run comparison + decay recipe (Part 2) |
-| `DECISIONS.md` | campaign design rationale, every choice tagged [PORTED]/[NEW]/[DEVIATION] with provenance |
-| `HERO-DECISIONS.md` | SODA-Hier release-run design log: model/recipe/data/ops decisions with measured provenance |
-| `results/campaign_results.csv` | canonical numbers: all 13 runs x all metrics |
-| `results/p*/` | per-run NLL eval JSONs (the full per-token-type vectors) |
-| `findings/` | self-contained engineering investigations (MFU/throughput, checkpoint-resume no-op) |
+| `report/EXPERIMENTS.md` | campaign registry: what each experiment asks, fixed/varied factors, result capsule |
+| `report/FINDINGS.md` | what we learned: NLL measure-dependence (Part 1), the 12-run comparison + decay recipe (Part 2) |
+| `report/DECISIONS.md` | campaign design rationale, every choice tagged [PORTED]/[NEW]/[DEVIATION]; appendices hold the MFU/throughput and stale-resume investigations |
+| `report/HERO-DECISIONS.md` | SODA-Hier release-run design log: model/recipe/data/ops decisions with measured provenance |
+| `report/results/campaign_results.csv` | canonical numbers: all 13 runs x all metrics |
+| `report/results/p*/` | per-run NLL eval JSONs (the full per-token-type vectors) |
 
 `PROGRESS.local.md` and `SMOKE_LADDER.local.md` are untracked local run
 trackers; docstrings that mention them refer to files that exist only in the
@@ -67,7 +68,7 @@ working checkout.
 | `exp_hero.py` | P5 decay-weighting pilot + `soda-hier-1b` (the SODA-Hier release run) |
 | `hf_export/` | HF bridge: run registry, flat exporter (stock Qwen3), hier torch port (trust_remote_code) + converter, HF-vs-JAX parity harness |
 | `launchers/` | Slurm wrappers — train, NLL eval, HF export, parity, preprocessing, smokes; each header documents usage and submission conventions |
-| `dispatch.py` | Fray LocalClient dispatch (bring-up era; unused by the campaign/HERO paths) |
+| `benches/` | standalone micro-benchmarks behind `report/DECISIONS.md` Appendix A: attention impls (`attn_bench.py`), real-model step time/MFU (`step_bench.py`) |
 | `test_*.py` | unit tests: solver regression-pin vs the old sweep grid, vocab round-trip, hier loss (incl. decay-weighting equivalence), preprocessing, HF-hier bit-parity |
 
 ## Data

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chunk-parallel build of the HERO corpus (audio3, arm_h only, 131B tokens).
+# Chunk-parallel build of the HERO corpus (audio3, arm_h only, 148B tokens).
 #
 # Modes:
 #   run_preprocess_hero.sh submit      submit all 12 chunk jobs via nlprun
