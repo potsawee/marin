@@ -14,10 +14,12 @@ CSM/Moshi-style *hierarchical* factorization — a backbone over "steps" (one
 text token or one whole frame, embeddings summed) plus a small depth
 transformer predicting the 7 acoustic codebooks within each frame, trained
 with Moshi's alpha=100/100/1 (text/semantic/acoustic) weighting — would be
-better at matched training compute. We ran 12 runs across two isoflop
-budgets (1e18, 3e18 = 3x forward FLOPs), three widths (d = 512/768/896), a
-2x2 of {architecture} x {loss weighting}, and a depth-allocation ablation;
-same corpus (15.7B flat tokens ≈ 42k hours; no Nemotron text), same
+better at matched training compute. We ran a 12-run matrix across two
+isoflop budgets (1e18, 3e18 = 3x forward FLOPs), three widths
+(d = 512/768/896), a 2x2 of {architecture} x {loss weighting}, and a
+depth-allocation ablation, plus a 13th run piloting a graded per-codebook
+decay weighting on the hierarchical arm (P5, §2.2 — the SODA-Hier release
+recipe); same corpus (15.7B flat tokens ≈ 42k hours; no Nemotron text), same
 tokenizer, same Qwen3 blocks, same solver-derived hyperparameters, one seed
 per config. Both arms define normalized joints over the *same* token
 sequences (`flat_tokens == steps + 7*frames`, asserted at preprocessing), so
@@ -76,7 +78,8 @@ predictors even across model classes; only the uniform aggregate misleads,
 because 7 of 8 audio tokens are late-RVQ residuals whose bits carry little
 task-relevant information.**
 
-Spearman correlations over all 12 runs (both arms, three loss recipes):
+Spearman correlations over the 12 matrix runs (both arms, both loss
+recipes; the later P5 decay pilot is not included in these correlations):
 
 | aligned pair | rho |
 |---|---|
@@ -137,7 +140,7 @@ did for flattened+uniform.
 
 ---
 
-## Part 2. Flattened vs. Hierarchical: the 12-run comparison
+## Part 2. Flattened vs. Hierarchical: the campaign comparison
 
 All runs, all metrics (paired-task scores in %, chance = 50; WER in %,
 lower better; bits/a·s = uniform-measure bits per audio-second, lower
@@ -156,12 +159,14 @@ survivorship bias). Machine-readable copy: `results/campaign_results.csv`.
 | p2-hier-d512 | 668.1 | 1.27 | 24.2 | 23.8 | 32.2 | 0.197 | 100 | 50.3 | 50.4 | 57.0 | 63.7 | 65.9 | 64.7 | 51.7 | 51.1 | 61.9 | 62.7 | 64.2 | 65.2 |
 | p2-flat-d896 | 562.2 | 1.86 | 32.2 | 31.1 | 39.7 | 0.322 | 29 | 49.6 | 50.1 | 55.8 | 62.1 | 68.9 | 63.9 | 51.1 | 50.4 | 58.7 | 60.9 | 62.4 | 62.1 |
 | p2-hier-d896 | 657.2 | 1.16 | **16.1** | **15.1** | 30.0 | 0.234 | 100 | 50.2 | 50.8 | 57.7 | 64.2 | 67.2 | 64.9 | 52.1 | 51.1 | 62.2 | 62.7 | 64.7 | 65.5 |
-| p3-small | 673.1 | 1.17 | 21.8 | 16.3 | 41.0 | 0.217 | 100 | 50.2 | 50.5 | **58.2** | **64.7** | 66.4 | 64.9 | **53.0** | 51.2 | 61.9 | 61.4 | **65.6** | 66.5 |
+| p3-small | 673.1 | 1.17 | 21.8 | 16.3 | 41.0 | 0.217 | 100 | 50.2 | 50.5 | **58.2** | **64.7** | 66.4 | 64.9 | **53.0** | 51.2 | 61.9 | 61.4 | 65.6 | 66.5 |
 | p3-large | 656.8 | 1.25 | 19.5 | 19.2 | 28.9 | 0.227 | 100 | 50.3 | 50.7 | 57.6 | 64.4 | 66.8 | 64.9 | 52.5 | 50.7 | 60.6 | 61.6 | 63.9 | 64.9 |
 | p4-flat | 586.5 | 2.64 | 43.3 | 41.8 | 47.5 | 0.301 | 63 | 49.4 | 49.6 | 54.9 | 61.2 | 68.6 | 63.5 | 50.6 | 51.2 | 56.9 | 58.6 | 61.3 | 61.5 |
 | p4-hier | 674.5 | 1.31 | 20.9 | 19.3 | 46.6 | 0.194 | 100 | 50.4 | 50.2 | 57.2 | 63.2 | 66.1 | 64.1 | 52.9 | 50.6 | 61.4 | 62.1 | 63.9 | 64.8 |
+| p5-decay | 650.4 | 1.16 | 18.9 | 18.3 | 23.1 | 0.290 | 100 | 49.9 | 50.5 | 57.7 | 63.8 | 67.9 | **66.5** | 51.2 | 49.4 | **63.1** | 62.1 | **65.8** | 65.8 |
 
-(p4-* are the 1e18 runs; everything else is 3e18. Bold = campaign best.)
+(p4-* are the 1e18 runs; everything else is 3e18; p5-decay is the graded
+decay-weighting pilot at p1-hier's config, §2.2. Bold = campaign best.)
 
 ### 2.1 The headline pair: p1-flat vs. p1-hier at 3e18
 
@@ -233,8 +238,9 @@ cb7=1; VoiceCraft's α=(5,1,0.5,0.1) is the same shape over EnCodec's 4
 levels), concentrating the ~51% per-frame acoustic loss mass (vs uniform
 87.5% / moshi 6.5%) on the perceptually dominant early codebooks and
 starving the late residuals. The result matches or beats **moshi on every
-semantic axis** — ASR-0s 18.9 (vs 19.4 moshi / 22.5 uniform; campaign
-best), tBLIMP 65.8 (best), tSC 63.1 (best), semantic NLL 2.485 (best),
+semantic axis** — ASR-0s 18.9 (vs 19.4 moshi / 22.5 uniform; best of the
+d768 runs — the campaign-wide best is p2-hier-d896's 16.1), tBLIMP 65.8
+(campaign best), tSC 63.1 (campaign best), semantic NLL 2.485 (best),
 sWUGGY 57.7 ≈ 57.9 — while recovering most of the moshi→uniform
 **generation** gap: TTS-WER 29.6→23.1, TTS-SIM 0.230→0.290, SALMon
 66.7→67.9, at 100% termination. Mechanistically it models cb1 as well as

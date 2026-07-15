@@ -133,8 +133,12 @@ depth-allocation and loss-weighting ablations + inference-economics.
   <=512 text tokens so a doc fits *both* the 4096-flat and 1024-step windows —
   every reported number covers identical content in both arms. One doc per
   sequence, teacher-forced.
-- **[DEFERRED] blueberry-eval (sWUGGY/sBLIMP/Salmon) + HF export** — a stretch on
-  selected checkpoints after the NLL frontier exists.
+- **[DEFERRED → DONE 2026-07-10/12] blueberry-eval + HF export.** Originally a
+  stretch goal; ultimately every run (12-run matrix + the P5 pilot) was
+  HF-exported with enforced JAX↔HF parity and evaluated on the full suite —
+  ASR, zero-shot TTS, and the paired-likelihood tasks in uniform +
+  semantic-only scoring. Workflow and results: EXPERIMENTS.md ("Capability
+  results", "HF export + capability-eval bridge"), FINDINGS.md Part 2.
 
 ## Infrastructure / process
 

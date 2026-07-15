@@ -1,12 +1,14 @@
 # Experiment plan — flattened vs hierarchical audio LM campaign
 
-The campaign registry: what each experiment (P1, P1b, P1c, P2, P3, P4) asks,
-what is fixed, what varies, and how to read the result. Design rationale and
-provenance for every shared choice lives in `DECISIONS.md`; file roles in
+The campaign registry: what each experiment (P1, P1b, P1c, P2, P3, P4, P5)
+asks, what is fixed, what varies, and how to read the result. Design rationale
+and provenance for every shared choice lives in `DECISIONS.md`; file roles in
 `README.md`; live run status in `PROGRESS.local.md` (untracked) and the
 W&B project `soda-extension` (entity `potsawee`). **The findings narrative —
 full result tables and interpretation across experiments — is
-`FINDINGS.md`; this registry and that write-up go hand in hand.**
+`FINDINGS.md`; this registry and that write-up go hand in hand.** The P5
+pilot and the SODA-Hier release run (`soda-hier-1b`) are defined in
+`exp_hero.py`; the release run's design log is `HERO-DECISIONS.md`.
 
 ## The research question
 
@@ -52,6 +54,7 @@ is one `--run` name in an `exp_*.py` script, launched via
 | P1 | p1-flat, p1-hier | 3e18 | architecture (at each arm's home loss recipe) | d=768 |
 | P1b | p1b-hier | 3e18 | Arm H loss weighting → uniform | d=768 |
 | P1c | p1c-flat (optional) | 3e18 | Arm F loss weighting → Moshi | d=768 |
+| P5 | p5-hier-decay100 | 3e18 | Arm H loss weighting → per-codebook decay (SODA-Hier pilot) | d=768 |
 | P2 | p2-{flat,hier}-d{512,896} | 3e18 | width d ∈ {512, 896} | home recipes |
 | P3 | p3-small, p3-large | 3e18 | Arm H depth-transformer allocation | backbone d=768 |
 | P4 | p4-{flat,hier}-d768 | 1e18 | compute budget | d=768, home recipes |
@@ -142,7 +145,8 @@ Exact per-run configs (params, batch, steps, lr): run
   worst of both.
 - **Result (2026-07-12) — PASS, better than the gate: a Pareto win over
   moshi.** Matches/beats moshi on every semantic metric — ASR-0s **18.9**
-  (moshi 19.4 / uniform 22.5; campaign best), tBLIMP **65.8** (best), tSC
+  (moshi 19.4 / uniform 22.5; best of the d768 runs — campaign-wide best is
+  p2-hier-d896's 16.1), tBLIMP **65.8** (best), tSC
   **63.1** (best), semantic NLL **2.485** (best), sWUGGY 57.7 ≈ 57.9 — while
   recovering most of the moshi→uniform generation gap: TTS-WER 29.6 → **23.1**,
   TTS-SIM 0.230 → **0.290**, SALMon 66.7 → 67.9, at 100% termination. Models
@@ -177,7 +181,7 @@ Exact per-run configs (params, batch, steps, lr): run
   termination), while flat's termination collapses with width (100/76/29%
   at d512/768/896) — only p2-flat-d512's TTS numbers are survivorship-free.
   JSONs: `results/p2/`; interpretation: FINDINGS.md §2.3.
-- **Epoch caveat (writeup must flag).** p2-hier-d512 is the campaign's only
+- **Epoch caveat (flagged in FINDINGS.md §2.3).** p2-hier-d512 is the campaign's only
   multi-epoch run: 3.68B backbone steps needed vs 2.48B in the corpus =
   **1.48 epochs** (the hier stream is ~6.3x shorter than the flat one for the
   same documents, and the solver gives small models more data). Every other
@@ -250,11 +254,14 @@ Exact per-run configs (params, batch, steps, lr): run
 4. **Depth allocation.** P3 curve.
 5. **Inference economics (analytic).** Flat: 8 x fwd(N_F) per audio-second and
    KV length 8T; hier: fwd(N_backbone) + 7 x fwd(N_depth) and KV length T.
-   Uses `audio_flops.py` accountants; no new runs.
+   Uses `audio_flops.py` accountants; no new runs. **Done:** 7.0x fewer
+   decode FLOPs per generated audio-second at p1 sizes (FINDINGS.md
+   conclusion 6).
 
 ## Capability results (blueberry-eval suite, 2026-07-10)
 
-All 12 runs evaluated end-to-end through blueberry-eval (branch
+All 13 runs (the 12-run matrix 2026-07-10/11; the P5 pilot 2026-07-12)
+evaluated end-to-end through blueberry-eval (branch
 `soda-extension`, env `blueberry-soda-ext`): ASR 0/2-shot WER (LibriSpeech
 test-clean), zero-shot TTS (seed-tts-eval en, 1088 prompts: whisper-large-v3
 WER + WavLM speaker-SIM; scored 2026-07-11), paired-likelihood tasks in TWO
@@ -313,16 +320,23 @@ bash experiments/audio/launchers/run_parity.sh p1-flat 16         # HF-vs-JAX NL
 
 ## Status and artifacts
 
-**Campaign complete: all 12 runs trained to their final step, NLL-evaluated
-(2026-07-10), HF-exported, capability-evaluated (2026-07-10), and
-TTS-evaluated (2026-07-11).** Remaining phases: analysis figures,
-inference-economics, writeup, HF release (user-curated).
+**Campaign complete: all 13 runs (12-run matrix + the P5 pilot) trained to
+their final step, NLL-evaluated, HF-exported with verified parity,
+capability-evaluated, and TTS-evaluated** (matrix 2026-07-09/11; P5
+2026-07-12). The findings write-up is `FINDINGS.md`; inference economics are
+computed (7.0x decode-FLOPs advantage; FINDINGS.md conclusion 6). **The
+SODA-Hier release run `soda-hier-1b` (1.11B, decay recipe, 396k-hour audio3
+corpus, exactly 1 epoch) has been training since 2026-07-13** — design log
+`HERO-DECISIONS.md`. Remaining: analysis figures for the paper, HERO
+completion eval/export, HF release (user-curated).
 
 - Every run logs to W&B project `soda-extension`; run names carry the config
-  hash (resume-safe). Checkpoints:
-  `$MARIN_PREFIX/audio2-runs/<run>/checkpoints/<run>/step-N` + verified
-  `hf/step-N` export per run.
-- NLL eval JSONs: `experiments/audio/report/results/p{1,1b,1c,2,3,4}/`; combined
+  hash (resume-safe). **Campaign weights survive only as the verified
+  `$MARIN_PREFIX/audio2-runs/<run>/hf/step-N` HF exports** — the Levanter
+  `checkpoints/` trees were deleted 2026-07-11 after export verification, so
+  campaign re-evals go through the HF/torch side. The HERO run keeps its JAX
+  checkpoints (resume + on-completion eval/export).
+- NLL eval JSONs: `experiments/audio/report/results/p{1,1b,1c,2,3,4,5}/`; combined
   NLL+capability matrix: `experiments/audio/report/results/campaign_results.csv`.
 - Raw capability outputs (per-sample logs, transcripts, stats):
   `blueberry-eval/auto_evals/soda-extension/<run_id>-step<N>/`.

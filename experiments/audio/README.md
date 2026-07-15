@@ -30,7 +30,8 @@ NLL-evaluated, HF-exported with JAX↔HF parity verified, and evaluated on
 ASR / zero-shot TTS / the paired-likelihood suite. The per-codebook decay
 weighting from the P5 pilot was selected as the release recipe, and
 **SODA-Hier** (`soda-hier-1b`, 1.11B params) has been training on the 396k-hour
-corpus since 2026-07-13 (~17-day epoch). W&B project: `soda-extension`.
+corpus since 2026-07-13 (~16.3 s/step on 6x RTX 6000 Ada, ~18-day epoch).
+W&B project: `soda-extension`.
 
 ## Reading order
 
@@ -39,7 +40,7 @@ The experimental record lives in `report/`:
 | doc | contents |
 |---|---|
 | `report/EXPERIMENTS.md` | campaign registry: what each experiment asks, fixed/varied factors, result capsule |
-| `report/FINDINGS.md` | what we learned: NLL measure-dependence (Part 1), the 12-run comparison + decay recipe (Part 2) |
+| `report/FINDINGS.md` | what we learned: NLL measure-dependence (Part 1), the campaign comparison + decay recipe (Part 2) |
 | `report/DECISIONS.md` | campaign design rationale, every choice tagged [PORTED]/[NEW]/[DEVIATION]; appendices hold the MFU/throughput and stale-resume investigations |
 | `report/HERO-DECISIONS.md` | SODA-Hier release-run design log: model/recipe/data/ops decisions with measured provenance |
 | `report/results/campaign_results.csv` | canonical numbers: all 13 runs x all metrics |

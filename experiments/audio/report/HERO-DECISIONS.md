@@ -5,15 +5,17 @@ run, with justification and provenance, kept current as pilot/bench results
 land. Tags follow `DECISIONS.md` ([PORTED] from the campaign recipe,
 [NEW] reasoned choice without precedent, [DEVIATION] deliberate departure —
 flagged for the writeup). Planning provenance: user decisions of 2026-07-12;
-solver numbers from `isoflop_audio_target.solve_hier(budget, 1536,
-depth_hidden=1024, depth_layers=4)`.
+initial solver numbers from `isoflop_audio_target.solve_hier(budget, 1536,
+depth_hidden=1024, depth_layers=4)` — the frozen config uses dd1152 (the
+FSDP-divisibility change under "Model").
 
 ## The run in one line
 
-One release-grade hierarchical model (**SODA-Hier**, ~1.09B params: ~990M
-backbone + ~100M depth) trained on 6x RTX 6000 Ada for ~10–14 days on an
-expanded ~350k-hour Yodas+Emilia corpus, ≤1 epoch, as the scaled extension of
-the P1–P4 campaign and of the released flattened SODA line.
+One release-grade hierarchical model (**SODA-Hier**, 1.11B params: ~990M
+backbone + ~122M depth) trained on 6x RTX 6000 Ada for ~18 days on an
+expanded 396k-hour Yodas+Emilia corpus, exactly 1 epoch, as the scaled
+extension of the P1–P5 campaign and of the released flattened SODA line.
+Training since 2026-07-13 (job 16144040, jagupard39).
 
 ## Model
 
@@ -53,8 +55,8 @@ the P1–P4 campaign and of the released flattened SODA line.
     Fallback if it inherits the worst of both: uniform (p1b profile).
     **RESULT (2026-07-12): PASS — better than the gate required (a Pareto
     improvement over moshi), user chose decay.** Decay matches/beats moshi
-    on EVERY semantic metric — ASR-0s 18.9 (campaign best, vs moshi 19.4 /
-    uniform 22.5), tBLIMP 65.8 (best), tSC 63.1 (best), semantic NLL 2.485
+    on EVERY semantic metric — ASR-0s 18.9 (best of the d768 runs, vs moshi
+    19.4 / uniform 22.5), tBLIMP 65.8 (best), tSC 63.1 (best), semantic NLL 2.485
     (best), sWUGGY 57.7 ≈ moshi 57.9 — while pulling generation off moshi
     toward uniform: TTS-WER 23.1 (moshi 29.6 → uniform 17.8), TTS-SIM 0.290
     (0.230 → 0.330), 100% termination, SALMon 67.9 (66.7 → 68.9). Not a
@@ -77,7 +79,9 @@ the P1–P4 campaign and of the released flattened SODA line.
   is ~5× optimistic. Procedure: step-bench d1536/dd1024L4 at B=240 on 1 and
   6 GPUs → set `num_train_steps` to fill the wall-clock budget (target
   ~10–14 days ≈ 1.0–1.35e20; at 1.35e20: ~67k steps, 16.5B step-tokens).
-  MEASURED: _pending_.
+  Superseded by the exactly-1-epoch pin (open item 4): 95,033 steps ≈
+  2.12e20. MEASURED on the live run: **~16.3 s/step on 6× Ada → ~18-day
+  epoch** (open item 2 has the correction to the bench projections).
 - **[DEVIATION] batch=240** (solver rule gives pow2 128/256). 240 divides
   4/6/8 GPUs → Levanter's batch-divisibility constraint is satisfied across
   every device count we might resume on. LR follows the ported rule at the
@@ -124,13 +128,14 @@ the P1–P4 campaign and of the released flattened SODA line.
 - **[NEW] Submission roles**: Claude submits/babysits everything except the
   HERO training job itself — that the user submits from a Claude-prepared,
   `--hold`-validated command. jag-standard's time cap is **14 days**
-  (`-t 14-0`, confirmed 2026-07-12), so the ~11–19-day run needs **no job
-  chain** — a single job covers most/all of it, and preemption/time-limit
-  requeue resumes from checkpoint automatically (below). LAUNCHED
-  2026-07-13: `nlprun -q jag -p standard -g 6 -c 16 -r 96G -n soda-hier-1b
-  -t 14-0 -x <24G+down nodes>` on jagupard34 (6× Ampere, job 16143923;
-  Ada was swarmed). Resume = rerun the same command (config-hash,
-  node/GPU-count-safe).
+  (`-t 14-0`, confirmed 2026-07-12), so the ~18-day run needs at most one
+  requeue/resubmit — and preemption/time-limit requeue resumes from
+  checkpoint automatically (below). LAUNCHED 2026-07-13: `nlprun -q jag -p
+  standard -g 6 -c 16 -r 96G -n soda-hier-1b -t 14-0 -x <24G+down nodes>`,
+  first on jagupard34 (6× Ampere, job 16143923; Ada was swarmed), migrated
+  the same day via checkpoint resume to **jagupard39 (6× RTX 6000 Ada, job
+  16144040)** — the run of record. Resume = rerun the same command
+  (config-hash, node/GPU-count-safe).
 - **[NEW] Checkpoints**: temporaries every 15 min + permanent every 10k
   steps (~13G each, ~130G total) + final. JAX checkpoints are KEPT (unlike
   the campaign) for resume/NLL-eval/export; prune only after release.
@@ -163,7 +168,8 @@ the P1–P4 campaign and of the released flattened SODA line.
 
 ## Open items (updated as they resolve)
 
-1. Pilot p5-hier-decay100 result + recipe decision — _pending_.
+1. Pilot p5-hier-decay100 result + recipe decision — RESOLVED 2026-07-12:
+   PASS (Pareto win over moshi), decay chosen; see "Loss weighting".
 2. Measured step-time at 1B: 2-GPU Ada probe DONE 2026-07-12 (bench
    16137856, B=40, pdp=10, dd1024): **p50 MFU 10.63% vs 362 TF = 37.3
    eff-TFLOPS/GPU**, 4.5 s/step — ~1.7× the campaign band. 6-GPU B=240
@@ -177,18 +183,25 @@ the P1–P4 campaign and of the released flattened SODA line.
    budget ≈ 2.15e20 ≈ 11.1 days at the measured 37.3 eff-TF/GPU (13.3 at a
    conservative 31)** — pin the exact step count from the audio3 aggregate
    manifest, and sanity-check with the 6-GPU bench before freeze.
+   **LIVE CORRECTION (2026-07-13, job 16144040): the run measures ~16.3
+   s/step on 6× Ada — the 10.2 s/step Ada projection was wrong. At ~14% MFU
+   this workload is not GPU-FLOPS-bound, so Ada ≈ Ampere (16.3 vs 17.4
+   s/step) and 95,033 steps ≈ ~18 days.** Hardware swaps buy little; the
+   remaining speed lever is the fused-CE autotune (item 5).
 3. Corpus build verification — DONE 2026-07-12: 12/12 chunks, aggregate
    mix-assertion passed (realized .546/.305/.149 vs target .544/.303/.154);
    **148.03B flat tokens = 23.356B backbone steps = 396k audio hours**.
    Build lessons folded into ops notes (row-group memory, MaxMemPerCPU,
    wipe-before-retry).
 4. Config freeze: **soda-hier-1b-08d907e0** — HERO_STEPS=95,033 (exactly
-   1 epoch), budget 2.12e20, ~11.2 days on 6× Ada / 19.1 on Ampere.
-   Submit-command mechanics `--hold`-validated 2026-07-12 (job 16142486:
-   6 GPU / 16 CPU / 96G / 7-day / Ada-only exclude list parsed correctly;
-   cancelled) — the command is hash-independent, so this stands even if the
-   pilot gate forces a weighting fallback (which would only re-hash the run
-   name). Final freeze still awaits the pilot verdict.
+   1 epoch), budget 2.12e20; wall-clock measured on the live run ~16.3
+   s/step ≈ 18 days on 6× Ada (the ~11-day projection was optimistic — see
+   item 2's correction). Submit-command mechanics `--hold`-validated
+   2026-07-12 (job 16142486: 6 GPU / 16 CPU / 96G / 7-day / Ada-only
+   exclude list parsed correctly; cancelled) — the command is
+   hash-independent, so it survived the pilot-gate decision unchanged.
+   FROZEN after the pilot PASS and LAUNCHED 2026-07-13 (job 16143923 →
+   16144040 on jagupard39; see Ops).
 5. Fused-CE block sizes for the d1536/130308 shape: the autotune cache HIT
    served block sizes tuned for the small campaign models and the batched_xla
    path allocated a ~15G temporary at microbatch 20. Worth clearing/re-running
