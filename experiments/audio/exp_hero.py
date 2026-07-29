@@ -56,7 +56,11 @@ HERO_BATCH = 240
 # 1.09B config OOMs at microbatch 40 and 20 (unified-head CE temporaries ~15G
 # at mb20 on top of sharded optimizer state); 10 fits. Divides B=240 at
 # 4/6/8 GPUs (accum 6/4/3). Infra-only knob: excluded from the experiment hash.
-HERO_PER_DEVICE = 10
+# Infra-only knob (excluded from the experiment hash): microbatch / grad-accum
+# granularity, NOT the global batch. Default 10 fits a 48G Ada; 40G A100s need
+# a smaller microbatch (~5, accum 8 at 6 GPUs) to stay under the CE-temporary
+# ceiling. Override via the HERO_PER_DEVICE env var at submission time.
+HERO_PER_DEVICE = int(os.environ.get("HERO_PER_DEVICE", "10"))
 # Exactly 1 epoch of the audio3 corpus at B=240, pinned from the verified
 # aggregate manifest (2026-07-12): 148.03B flat tokens = 23.356B backbone
 # steps = 396k audio hours; mix-assertion passed. Implied budget 2.12e20;
@@ -112,6 +116,38 @@ def soda_hier_1b() -> AudioTrainConfig:
     return finalize_run(config, "soda-hier-1b", spec)
 
 
+# WSD early-decay branch (user decision 2026-07-22): the stable trunk stops at
+# the step-42346 checkpoint and a 10k-step linear decay leg runs from there
+# (decay = 19.1% of the shortened total, ~ the recipe's 20%). Seeded by copying
+# the branch checkpoint into this run's checkpoint dir; the trunk run's dir is
+# untouched and remains resumable. warmup/decay are ABSOLUTE step counts so the
+# phase boundaries stay exact under the new total: stable ends and decay begins
+# precisely at BRANCH1_FROM.
+BRANCH1_FROM = 42_346
+BRANCH1_DECAY = 10_000
+
+
+def soda_hier_1b_branch1() -> AudioTrainConfig:
+    spec, cfg = solve_hier(HERO_BUDGET, HERO_D, depth_hidden=HERO_DEPTH_HIDDEN, depth_layers=HERO_DEPTH_LAYERS)
+    cfg = dataclasses.replace(cfg, acoustic_weights=DECAY100)
+    spec = dataclasses.replace(
+        spec,
+        batch_size=HERO_BATCH,
+        num_steps=BRANCH1_FROM + BRANCH1_DECAY,
+        learning_rate=0.33 * math.sqrt(HERO_BATCH) / HERO_D,
+        beta2=0.98 ** (HERO_BATCH / 128),
+    )
+    config = AudioTrainConfig(arm="hier", hier_model=cfg, **_common(spec))
+    config = dataclasses.replace(
+        config,
+        data_root=f"{os.environ['MARIN_PREFIX']}/audio3",
+        sources=_hero_sources(),
+        trainer=dataclasses.replace(config.trainer, per_device_parallelism=HERO_PER_DEVICE),
+        optimizer=dataclasses.replace(config.optimizer, warmup=9_503, decay=BRANCH1_DECAY),
+    )
+    return finalize_run(config, "soda-hier-1b-branch1", spec)
+
+
 def _bench(batch: int):
     """Short REAL training run of the HERO config for step-time measurement.
 
@@ -143,6 +179,7 @@ def _bench(batch: int):
 RUNS = {
     "p5-hier-decay100": p5_hier_decay100,
     "soda-hier-1b": soda_hier_1b,
+    "soda-hier-1b-branch1": soda_hier_1b_branch1,
     "bench-hero-b40": _bench(40),
     "bench-hero-b240": _bench(240),
 }

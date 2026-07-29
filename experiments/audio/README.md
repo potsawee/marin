@@ -25,13 +25,19 @@ budget = 3 x forward FLOPs (`audio_flops.py`); the solver
 (`isoflop_audio_target.py`) ports the old sweep's derivation rules and is
 regression-pinned to its published grid.
 
-**Status (2026-07-13).** The 13-run campaign (P1–P5) is complete: trained,
-NLL-evaluated, HF-exported with JAX↔HF parity verified, and evaluated on
-ASR / zero-shot TTS / the paired-likelihood suite. The per-codebook decay
-weighting from the P5 pilot was selected as the release recipe, and
-**SODA-Hier** (`soda-hier-1b`, 1.11B params) has been training on the 396k-hour
-corpus since 2026-07-13 (~16.3 s/step on 6x RTX 6000 Ada, ~18-day epoch).
-W&B project: `soda-extension`.
+**Status (2026-07-28). The investigation is complete.** The 13-run campaign
+(P1–P5) was trained, NLL-evaluated, HF-exported with JAX↔HF parity verified,
+and evaluated on ASR / zero-shot TTS / the paired-likelihood suite; the
+per-codebook decay weighting from the P5 pilot was selected as the recipe
+to scale. **SODA-Hier** — `soda-hier-1b-branch1-53c95cb9`, 1.11B params,
+trained on the 396k-hour corpus 2026-07-13 → 07-26 — **finished at step
+52,345 = 1.168e20 FLOPs** (55.1% of the intended one-epoch plan: the stable
+phase was stopped early for cluster availability and closed with a WSD decay
+leg, `report/HERO-DECISIONS.md`). It is fully evaluated on the campaign's
+battery and **improves on every above-chance metric over the 3e18 pilot with
+no regressions** — ASR-0s 18.9 → 7.7 WER, TTS-WER 23.1 → 17.2, TTS-SIM
+0.290 → 0.362 (above every flattened campaign run). Interpretation:
+`report/FINDINGS.md` Part 3. W&B project: `soda-extension`.
 
 ## Reading order
 
@@ -40,10 +46,10 @@ The experimental record lives in `report/`:
 | doc | contents |
 |---|---|
 | `report/EXPERIMENTS.md` | campaign registry: what each experiment asks, fixed/varied factors, result capsule |
-| `report/FINDINGS.md` | what we learned: NLL measure-dependence (Part 1), the campaign comparison + decay recipe (Part 2) |
+| `report/FINDINGS.md` | what we learned: NLL measure-dependence (Part 1), the campaign comparison + decay recipe (Part 2), the recipe scaled up 39x in SODA-Hier (Part 3) |
 | `report/DECISIONS.md` | campaign design rationale, every choice tagged [PORTED]/[NEW]/[DEVIATION]; appendices hold the MFU/throughput and stale-resume investigations |
-| `report/HERO-DECISIONS.md` | SODA-Hier release-run design log: model/recipe/data/ops decisions with measured provenance |
-| `report/results/campaign_results.csv` | canonical numbers: all 13 runs x all metrics |
+| `report/HERO-DECISIONS.md` | SODA-Hier scale-up design log: model/recipe/data/ops decisions with measured provenance |
+| `report/results/campaign_results.csv` | canonical numbers: the 13 campaign runs x all metrics, plus a 14th row for the SODA-Hier scale-up |
 | `report/results/p*/` | per-run NLL eval JSONs (the full per-token-type vectors) |
 
 `PROGRESS.local.md` and `SMOKE_LADDER.local.md` are untracked local run
@@ -66,7 +72,7 @@ working checkout.
 | `exp_isoflop_headline.py` | P1/P1b/P1c: the 3e18 d=768 pair + the loss-weighting 2x2 cells |
 | `exp_isoflop_sweep.py` | P2: 3e18 d in {512, 896}; P4: 1e18 anchors |
 | `exp_depth_ablation.py` | P3: depth-transformer allocation at 3e18 d=768 |
-| `exp_hero.py` | P5 decay-weighting pilot + `soda-hier-1b` (the SODA-Hier release run) |
+| `exp_hero.py` | P5 decay-weighting pilot + `soda-hier-1b` (stable trunk) and `soda-hier-1b-branch1` (the WSD early-decay branch = the final SODA-Hier model) |
 | `hf_export/` | HF bridge: run registry, flat exporter (stock Qwen3), hier torch port (trust_remote_code) + converter, HF-vs-JAX parity harness |
 | `launchers/` | Slurm wrappers — train, NLL eval, HF export, parity, preprocessing, smokes; each header documents usage and submission conventions |
 | `benches/` | standalone micro-benchmarks behind `report/DECISIONS.md` Appendix A: attention impls (`attn_bench.py`), real-model step time/MFU (`step_bench.py`) |
@@ -103,12 +109,14 @@ uv run python experiments/audio/isoflop_audio_target.py
 uv run python experiments/audio/exp_smoke.py --rung decay
 
 # train one registered run (config-hash run names; resume-safe across GPU counts)
-bash experiments/audio/launchers/run_train.sh p1-hier                    # from exp_isoflop_headline.py
-bash experiments/audio/launchers/run_train.sh soda-hier-1b exp_hero.py   # the HERO run
+bash experiments/audio/launchers/run_train.sh p1-hier                            # from exp_isoflop_headline.py
+bash experiments/audio/launchers/run_train.sh soda-hier-1b exp_hero.py           # HERO stable trunk (resumable for a higher-budget point)
+bash experiments/audio/launchers/run_train.sh soda-hier-1b-branch1 exp_hero.py   # the final decay branch
 
 # post-hoc NLL eval; non-default hier depth geometry needs explicit flags
 bash experiments/audio/launchers/run_eval.sh p2-hier-d896-<hash> hier 896
 bash experiments/audio/launchers/run_eval.sh p3-hier-dd256L2-<hash> hier 768 latest --depth-hidden 256 --depth-layers 2
+bash experiments/audio/launchers/run_eval.sh soda-hier-1b-branch1-53c95cb9 hier 1536 52345 --depth-hidden 1152 --depth-layers 4
 
 # HF export (CPU) + HF-vs-JAX NLL parity (1 GPU, ~5 min)
 bash experiments/audio/launchers/run_export.sh hier p2-hier-d896

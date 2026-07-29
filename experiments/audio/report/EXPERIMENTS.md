@@ -7,8 +7,8 @@ and provenance for every shared choice lives in `DECISIONS.md`; file roles in
 W&B project `soda-extension` (entity `potsawee`). **The findings narrative —
 full result tables and interpretation across experiments — is
 `FINDINGS.md`; this registry and that write-up go hand in hand.** The P5
-pilot and the SODA-Hier release run (`soda-hier-1b`) are defined in
-`exp_hero.py`; the release run's design log is `HERO-DECISIONS.md`.
+pilot and the SODA-Hier scale-up (`soda-hier-1b`) are defined in
+`exp_hero.py`; the scale-up's design log is `HERO-DECISIONS.md`.
 
 ## The research question
 
@@ -58,6 +58,7 @@ is one `--run` name in an `exp_*.py` script, launched via
 | P2 | p2-{flat,hier}-d{512,896} | 3e18 | width d ∈ {512, 896} | home recipes |
 | P3 | p3-small, p3-large | 3e18 | Arm H depth-transformer allocation | backbone d=768 |
 | P4 | p4-{flat,hier}-d768 | 1e18 | compute budget | d=768, home recipes |
+| HERO | soda-hier-1b(-branch1) | 1.17e20 | scale-up: the campaign recipe at 39x budget (a scaled-up P5) | d=1536, decay recipe, audio3 corpus |
 
 Exact per-run configs (params, batch, steps, lr): run
 `uv run python experiments/audio/isoflop_audio_target.py`.
@@ -133,7 +134,7 @@ Exact per-run configs (params, batch, steps, lr): run
 
 - **Question.** The 2x2 casts hier moshi-vs-uniform as a semantics-vs-
   generation trade. Does a *graded* acoustic weighting escape it rather than
-  interpolate it? Gates the loss recipe for the SODA-Hier release run.
+  interpolate it? Gates the loss recipe for the SODA-Hier scale-up.
 - **Fixed.** Everything in p1-hier (3e18, d=768, dd384L4, audio2 corpus,
   full eval battery) — a clean third weighting point on the p1/p1b anchors.
 - **Varies.** Acoustic weights only: flat 100/100/1 (moshi) → geometric decay
@@ -152,7 +153,7 @@ Exact per-run configs (params, batch, steps, lr): run
   TTS-SIM 0.230 → **0.290**, SALMon 66.7 → 67.9, at 100% termination. Models
   cb1 as well as uniform (acoustic-cb1 NLL 4.39 ≈ 4.40) while keeping moshi's
   semantic organization; pays only on cb7 (worst of the three). **Selected as
-  the SODA-Hier release recipe.** Row in `results/campaign_results.csv`
+  the recipe for the SODA-Hier scale-up.** Row in `results/campaign_results.csv`
   (p5-decay); interpretation: FINDINGS.md §2.2; HF export + parity OK.
 
 ## P2 — width sweep at 3e18 (`exp_isoflop_sweep.py`)
@@ -243,6 +244,60 @@ Exact per-run configs (params, batch, steps, lr): run
 
 ---
 
+## HERO — SODA-Hier, the scale-up run (`exp_hero.py`)
+
+- **Question.** Does the campaign's selected recipe (Arm H + per-codebook
+  decay + wide backbone + small depth) hold at a real training budget?
+  Effectively a scaled-up P5. Note the scale: 1.17e20 is ablation-scale,
+  ~110x below the 1.3e22 of SODA's published HERO run — this extends the
+  campaign ladder, it is not a flagship model.
+- **Fixed.** Recipe and solver rules from the campaign; single epoch, one
+  seed; identical eval battery.
+- **Varies (deliberately, all at once).** Budget 3e18 → **1.17e20**
+  (38.9x), width d768 → **d1536** (308M → **1111M** params, dd1152/L4
+  depth), corpus `audio2` (42k h) → **`audio3` (396k h)**. Not a controlled
+  isoflop point — see FINDINGS §3.3.
+- **Schedule.** WSD, warmup 9,503 / decay 10,000 as ABSOLUTE steps, B=240,
+  lr 0.00333, beta2 0.9629.
+- **Read-out.** Same suite as every campaign run, so the scaled run can
+  be read directly against the P-runs on every axis.
+- **Result (2026-07-26).** Final model `soda-hier-1b-branch1-53c95cb9`,
+  **step 52,345, 1.168e20 FLOPs (55.1% of the one-epoch plan)** — the
+  stable trunk was stopped at step 42,346 for compute availability and
+  closed with a 10k decay leg (WSD affordance; decay = 19.1% of the
+  shortened total, matching the campaign's 20% shape). **Every above-chance
+  metric improves over the p5-decay pilot and nothing regresses**:
+  bits/audio-second 650.4 → **603.5**, bits/text-token 1.161 → **0.738**,
+  ASR-0s 18.9 → **7.7**, TTS-WER 23.1 → **17.2**, TTS-SIM 0.290 →
+  **0.362** (above every flattened campaign run; the tougher
+  compute-optimal comparison is the §3.2 bracket), sWUGGY 57.7 → **60.4**, tBLIMP
+  65.8 → **70.2**. A 3-checkpoint trajectory (27,729 / 42,346 stable;
+  52,345 decayed) isolates the decay leg as the dominant cause of the
+  generation gains. Interpretation: FINDINGS §3; design log:
+  `HERO-DECISIONS.md`; row `soda-hier-1b` in
+  `results/campaign_results.csv`.
+- **Flat-vs-hier at scale (2026-07-28, FINDINGS §3.2).** SODA-Hier is
+  bracketed against two near-compute-optimal flattened models from the
+  original SODA isoflop sweep — Flat*-9e19 (851M d1408, step 35,313) and
+  Flat*-1.8e20 (1.23B d1664, step 46,636) — evaluated with the same
+  blueberry harness (N=8 likelihood scoring and identical ASR decode
+  params verified). Verdict pattern: **clearly better** (beats the 1.5x-
+  compute flat) on ASR 0/2-shot, sWUGGY speech+text and sBLIMP text;
+  **quite likely worse** (loses to the 0.77x-compute flat) on
+  uniform-scored SALMon and on TTS WER/SIM — the campaign's axis split
+  reproduced at scale, on both sides.
+  Cross-loss NLL is deliberately not compared (FINDINGS §1.1:
+  near-circular across training losses). Caveats (different training mix;
+  Hier not compute-optimal) in §3.2. Their eval dirs:
+  `blueberry-eval/isoflop/auto_evals/discrete-audio-isoflop-{3e+19,6e+19}/…`
+  (directory names carry the pre-correction FLOPs — multiply by 3).
+- **Left available.** The trunk `soda-hier-1b-08d907e0` is untouched and
+  resumable from its pinned `eval-snapshots/step-42346`, so a
+  longer-stable + fresh-decay run gives a higher-budget point with no
+  rework.
+
+---
+
 ## Analysis phase (no training)
 
 1. **Isoflop frontier figure.** bits/audio-second vs compute per arm
@@ -320,15 +375,20 @@ bash experiments/audio/launchers/run_parity.sh p1-flat 16         # HF-vs-JAX NL
 
 ## Status and artifacts
 
-**Campaign complete: all 13 runs (12-run matrix + the P5 pilot) trained to
-their final step, NLL-evaluated, HF-exported with verified parity,
-capability-evaluated, and TTS-evaluated** (matrix 2026-07-09/11; P5
-2026-07-12). The findings write-up is `FINDINGS.md`; inference economics are
-computed (7.0x decode-FLOPs advantage; FINDINGS.md conclusion 6). **The
-SODA-Hier release run `soda-hier-1b` (1.11B, decay recipe, 396k-hour audio3
-corpus, exactly 1 epoch) has been training since 2026-07-13** — design log
-`HERO-DECISIONS.md`. Remaining: analysis figures for the paper, HERO
-completion eval/export, HF release (user-curated).
+**Everything is trained and evaluated; the investigation is complete.** All
+13 campaign runs (12-run matrix + the P5 pilot) reached their final step and
+were NLL-evaluated, HF-exported with verified parity, capability-evaluated
+and TTS-evaluated (matrix 2026-07-09/11; P5 2026-07-12). **The SODA-Hier
+scale-up run finished 2026-07-26**: `soda-hier-1b-branch1-53c95cb9`, 1.11B
+params, decay recipe, 396k-hour audio3 corpus, **step 52,345 = 1.168e20
+FLOPs (55.1% of the one-epoch plan, closed with a WSD decay leg)**, fully
+evaluated (NLL + blueberry suite + TTS) at the final checkpoint and at two
+stable-phase checkpoints. The findings write-up is `FINDINGS.md` (Part 3 is
+the scale-up); inference economics are computed (7.0x decode-FLOPs
+advantage; FINDINGS.md conclusion 6); design log `HERO-DECISIONS.md`.
+Remaining: analysis figures for the paper, optional HF upload of the
+checkpoint (user-curated), and
+optionally a higher-budget point by resuming the pinned trunk.
 
 - Every run logs to W&B project `soda-extension`; run names carry the config
   hash (resume-safe). **Campaign weights survive only as the verified
@@ -337,12 +397,22 @@ completion eval/export, HF release (user-curated).
   campaign re-evals go through the HF/torch side. The HERO run keeps its JAX
   checkpoints (resume + on-completion eval/export).
 - NLL eval JSONs: `experiments/audio/report/results/p{1,1b,1c,2,3,4,5}/`; combined
-  NLL+capability matrix: `experiments/audio/report/results/campaign_results.csv`.
+  NLL+capability matrix: `experiments/audio/report/results/campaign_results.csv`
+  (14th row `soda-hier-1b` = the scale-up). HERO NLL JSONs live outside
+  the repo in `$SODA_ROOT/data/runs/`:
+  `soda-hier-1b-branch1-53c95cb9.eval.json` (final) and the two trunk
+  snapshots `soda-hier-1b-08d907e0{,-step27729}.eval.json`.
 - Raw capability outputs (per-sample logs, transcripts, stats):
-  `blueberry-eval/auto_evals/soda-extension/<run_id>-step<N>/`.
+  `blueberry-eval/auto_evals/soda-extension/<run_id>-step<N>/` — for HERO,
+  `soda-hier-1b-branch1-53c95cb9-step-52345/` plus the two trunk
+  checkpoints `soda-hier-1b-08d907e0-step-{27729,42346}/`.
+- HERO artifacts: JAX checkpoints under
+  `$MARIN_PREFIX/audio2-runs/soda-hier-1b-branch1-53c95cb9/checkpoints/`,
+  HF export at `.../hf/step-52345`, pinned branch point at
+  `$MARIN_PREFIX/audio2-runs/soda-hier-1b-08d907e0/eval-snapshots/step-42346`.
 - Known holes, accepted: TTS scores for the four flat runs with incomplete
   termination cover only their surviving prompts (survivorship; counts in
   `campaign_results.csv` `tts_n_wavs`); the tts2 (emilia-space) variant not
-  run; HellaSwag/MMLU not run — expected ≈chance at these budgets (the
-  5.x-saved tokenizer_class that blocked the old lm-eval env on hier
-  checkpoints was fixed 2026-07-11, so they are runnable if ever wanted).
+  run; HellaSwag/MMLU ran only for the HERO checkpoints and sit at chance
+  (~0.25/0.27), as expected for a ~1B speech-first model at these budgets;
+  no flattened baseline exists at the HERO budget (FINDINGS §3.3).

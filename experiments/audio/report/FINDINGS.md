@@ -7,6 +7,17 @@ every number below is reproducible from `results/` (per-run NLL JSONs +
 `campaign_results.csv`). The two documents go hand in hand: EXPERIMENTS.md
 answers "what exactly was run and why", this one answers "what did we learn".
 
+Three parts: **Part 1** establishes what held-out NLL can and cannot say
+across architectures and loss recipes; **Part 2** is the 13-run
+compute-matched comparison that selects a recipe; **Part 3** carries that
+recipe to **SODA-Hier**, a 1.11B run at 39x the campaign budget — a
+scaled-up P5, testing whether the pilots' conclusions survive an order of
+magnitude more compute (they do — including, in §3.2, a bracketing
+comparison against near-compute-optimal flattened models from the original
+SODA sweep). Note the scale: at 1.17e20 FLOPs this is still an
+ablation-scale run, ~110x below the 1.3e22 of SODA's published HERO run —
+it extends the campaign's ladder, it is not a flagship model.
+
 **Setup in one paragraph.** SODA (arXiv:2602.16687) flattens Mimi RVQ audio
 (8 codebooks/frame: 1 semantic + 7 acoustic, 12.5 Hz) into one token stream
 and trains a single decoder with uniform CE. Reviewers asked whether a
@@ -15,21 +26,22 @@ text token or one whole frame, embeddings summed) plus a small depth
 transformer predicting the 7 acoustic codebooks within each frame, trained
 with Moshi's alpha=100/100/1 (text/semantic/acoustic) weighting — would be
 better at matched training compute. We ran a 12-run matrix across two
-isoflop budgets (1e18, 3e18 = 3x forward FLOPs), three widths
-(d = 512/768/896), a 2x2 of {architecture} x {loss weighting}, and a
+isoflop budgets (1e18, 3e18 = 3x forward FLOPs), three widths (d =
+512/768/896), a 2x2 of {architecture} x {loss weighting}, and a
 depth-allocation ablation, plus a 13th run piloting a graded per-codebook
-decay weighting on the hierarchical arm (P5, §2.2 — the SODA-Hier release
-recipe); same corpus (15.7B flat tokens ≈ 42k hours; no Nemotron text), same
-tokenizer, same Qwen3 blocks, same solver-derived hyperparameters, one seed
-per config. Both arms define normalized joints over the *same* token
-sequences (`flat_tokens == steps + 7*frames`, asserted at preprocessing), so
-held-out NLL is directly comparable — what it *means* is Part 1. Every run
-was evaluated on teacher-forced NLL (LibriSpeech dev-clean, per-token-type),
-ASR 0/2-shot WER (test-clean), zero-shot TTS (seed-tts-eval English, 1088
-prompts; WER via whisper-large-v3, speaker similarity via WavLM ASV), and
-paired-likelihood tasks (sBLIMP, sWUGGY, SALMon, s/tStoryCloze + text
-tBLIMP/tWUGGY), the speech likelihood tasks each scored two ways:
-all-tokens-uniform and semantic-only (codebook 0 of every frame).
+decay weighting on the hierarchical arm (P5, §2.2 — the recipe carried into
+the Part 3 scale-up); same corpus (15.7B flat tokens ≈ 42k hours; no
+Nemotron text), same tokenizer, same Qwen3 blocks, same solver-derived
+hyperparameters, one seed per config. Both arms define normalized joints
+over the *same* token sequences (`flat_tokens == steps + 7*frames`, asserted
+at preprocessing), so held-out NLL is directly comparable — what it *means*
+is Part 1. Every run was evaluated on teacher-forced NLL (LibriSpeech
+dev-clean, per-token-type), ASR 0/2-shot WER (test-clean), zero-shot TTS
+(seed-tts-eval English, 1088 prompts; WER via whisper-large-v3, speaker
+similarity via WavLM ASV), and paired-likelihood tasks (sBLIMP, sWUGGY,
+SALMon, s/tStoryCloze + text tBLIMP/tWUGGY), the speech likelihood tasks
+each scored two ways: all-tokens-uniform and semantic-only (codebook 0 of
+every frame).
 
 ---
 
@@ -166,7 +178,10 @@ survivorship bias). Machine-readable copy: `results/campaign_results.csv`.
 | p5-decay | 650.4 | 1.16 | 18.9 | 18.3 | 23.1 | 0.290 | 100 | 49.9 | 50.5 | 57.7 | 63.8 | 67.9 | **66.5** | 51.2 | 49.4 | **63.1** | 62.1 | **65.8** | 65.8 |
 
 (p4-* are the 1e18 runs; everything else is 3e18; p5-decay is the graded
-decay-weighting pilot at p1-hier's config, §2.2. Bold = campaign best.)
+decay-weighting pilot at p1-hier's config, §2.2. Bold = campaign best.
+The CSV carries a 14th row, `soda-hier-1b` — the 1.17e20 scale-up of
+Part 3; it is deliberately absent from this table, which is the
+compute-matched comparison.)
 
 ### 2.1 The headline pair: p1-flat vs. p1-hier at 3e18
 
@@ -247,8 +262,8 @@ sWUGGY 57.7 ≈ 57.9 — while recovering most of the moshi→uniform
 uniform (acoustic-cb1 NLL 4.39 ≈ 4.40) yet keeps moshi's semantic
 organization — the graded weight buys both endpoints' strengths on the
 hierarchical arm, at the cost only of the highest-order residual (cb7 NLL
-5.06, worst of the three). This is the recipe selected for the SODA-Hier
-release run (Part 3).
+5.06, worst of the three). This is the recipe carried into the SODA-Hier
+scale-up (Part 3).
 
 ### 2.3 Varying the backbone size at fixed FLOPs (d = 512 / 768 / 896)
 
@@ -349,3 +364,212 @@ four flattened runs with gen% < 100 cover only their terminating prompts
 `campaign_results.csv` `tts_n_wavs`); HellaSwag/MMLU omitted (≈chance at
 these budgets); correlation samples are small (n = 4–6); all capability
 evals are English-only and LibriSpeech-centric for ASR.
+
+---
+
+## Part 3. Scaling the recipe: SODA-Hier at 39x the campaign budget
+
+Part 2's recommendation — hierarchical factorization, graded per-codebook
+decay weighting, wide backbone, small depth — was selected on 1e18/3e18
+pilots. Part 3 asks whether it survives an order of magnitude more compute.
+**`soda-hier-1b-branch1-53c95cb9`** is essentially **a scaled-up P5**: the
+same arm and same decay recipe, at 1.11B params (d1536 backbone +
+dd1152/L4 depth) on the 396k-hour `audio3` corpus for **1.17e20 FLOPs —
+38.9x the campaign's 3e18 point** — evaluated on the identical battery.
+Design provenance: `HERO-DECISIONS.md`.
+
+**Keep the scale in perspective.** 1.17e20 is a large *ablation*, not a
+flagship: SODA's published HERO run used 1.3e22 FLOPs, ~110x more. Part 3
+therefore extends the campaign's compute ladder by an order of magnitude
+and shows the recipe holds there; it does not claim a
+production-competitive model.
+
+**It is a 55%-of-plan run, and that is deliberate, not truncated.** The
+plan was 95,033 steps (one epoch, 2.12e20). Cluster contention made the
+remaining ~10 days unobtainable, so we exploited the affordance of the
+warmup–stable–decay schedule: **any stable-phase checkpoint plus a decay
+leg is a finished model for the smaller budget.** The stable trunk was
+stopped at step 42,346 and a 10,000-step linear decay leg branched from it
+(52,345 steps total; decay = 19.1% of the shortened run, matching the 20%
+shape every P1–P5 run used, so the result stays on the campaign's schedule
+line). Data seen stays under one epoch — no repeats. The trunk checkpoint
+is pinned and resumable, so a larger-budget point remains available without
+redoing any work.
+
+### 3.1 The campaign's recipe scales
+
+Same arm, same recipe, same eval suite; 38.9x the compute, 3.6x the
+parameters, 9.4x the corpus (paired-task scores %, chance = 50; WER %,
+lower better):
+
+| | p5-decay (3e18, 308M) | **SODA-Hier (1.17e20, 1.11B)** |
+|---|---|---|
+| bits/audio-second ↓ | 650.4 | **603.5** |
+| bits/text-token ↓ | 1.161 | **0.738** |
+| semantic NLL ↓ | 2.485 | **2.166** |
+| ASR 0-shot WER ↓ | 18.9 | **7.7** |
+| ASR 2-shot WER ↓ | 18.3 | **7.2** |
+| TTS-WER ↓ | 23.1 | **17.2** |
+| TTS-SIM ↑ | 0.290 | **0.362** |
+| sWUGGY / sWG-sem | 57.7 / 63.8 | **60.4 / 67.1** |
+| tBLIMP / tWUGGY | 65.8 / 65.8 | **70.2 / 70.6** |
+| SALMon / SAL-sem | 67.9 / 66.5 | **69.2 / 68.1** |
+| sBLIMP / sSC | 49.9 / 51.2 | 51.8 / 50.6 |
+
+Every metric that resolved above chance in the campaign improves, several
+by large margins, and **nothing regresses**. Two results deserve emphasis:
+
+**ASR more than halves** (18.9 → 7.7 zero-shot). The campaign's best ASR
+model was p2-hier-d896 at 16.1; the scaled run is less than half that
+error, on the same test-clean set with identical decode parameters.
+
+**The acoustic axis moves with scale — against the campaign's flats.**
+Part 2's honest summary was that flattened models were the better
+*acoustic* models — their strongest evidence being TTS speaker similarity,
+where the campaign best was p1-flat at 0.332 and every hierarchical run
+sat at 0.19–0.33. SODA-Hier reaches **0.362**, above every flattened run
+in the campaign, while simultaneously posting the best TTS-WER (17.2 vs
+p1b-hier's 17.8). So the small-scale acoustic deficit shrinks with budget
+— but the campaign flats are 3e18 models, and the harder test is against
+flattened models that are *also* scaled up; §3.2 runs that comparison and
+finds the acoustic and generation-quality axes (SALMon, TTS WER/SIM)
+still favor compute-optimal flattened models at this scale. sBLIMP and sStoryCloze remain at chance (as at every campaign
+budget), and MMLU/HellaSwag sit at chance (~0.25/0.27) — expected for a
+~1B speech-first model and reported as "not above chance", not as a trend.
+
+### 3.2 Against compute-optimal flattened SODA at scale
+
+The question that motivated this work — and the one reviewers asked — is
+flat vs. hierarchical, and Part 2 could only answer it at 1e18/3e18. The
+original SODA isoflop sweep provides the missing large-scale reference:
+flattened models trained near compute-optimally at their scale, evaluated
+with the same blueberry harness. SODA-Hier's 1.17e20 FLOPs falls between
+two of those points, giving a bracket (the * marks near-compute-optimal at
+that scale; parameters bracket too — 851M / 1.11B / 1.23B):
+
+- **Flat*-9e19** — 851M (d1408/L14), step 35,313: *less* compute than ours.
+- **Flat*-1.8e20** — 1.23B (d1664/L17), step 46,636: *more* compute.
+
+The bracketing logic: where SODA-Hier beats Flat*-1.8e20 it is **clearly
+better** (it wins against 1.5x more flattened compute); where it loses to
+Flat*-9e19 it is **quite likely worse** (it loses against 0.77x). Between
+the brackets is a draw. Scores in %, chance = 50 except MMLU/HSW (25):
+
+| metric | Flat*-9e19 | **SODA-Hier 1.17e20** | Flat*-1.8e20 | verdict |
+|---|---|---|---|---|
+| ASR 0-shot WER ↓ | 15.5 | **7.7** | 11.9 | **clearly better** |
+| ASR 2-shot WER ↓ | 14.4 | **7.2** | 11.4 | **clearly better** |
+| sWUGGY speech | 57.1 | **60.4** | 57.6 | **clearly better** |
+| sWUGGY text | 68.3 | **70.6** | 69.6 | **clearly better** |
+| sBLIMP text | 67.7 | **70.2** | 69.7 | **clearly better** |
+| sBLIMP speech | 49.7 | 51.8 | 50.1 | ≈chance for all |
+| MMLU / HSW-norm | 26.5 / 29.3 | 25.4 / 27.4 | 27.4 / 30.5 | ≈chance band |
+| SALMon | **70.7** | 69.2 | 70.6 | **quite likely worse** |
+| TTS-WER ↓ | 10.2 | 17.2 | **9.5** | **quite likely worse** |
+| TTS-SIM ↑ | 0.504 | 0.362 | **0.525** | **quite likely worse** |
+
+Held-out NLL is deliberately **not** tabulated: the Flat* models train with
+uniform CE and SODA-Hier with the decay weighting, and §1.1 established
+that cross-loss NLL comparisons are near-circular — each loss wins the
+measure it optimizes, so any NLL row here would restate the training
+objectives, not the models' quality. (For the record the pattern is
+exactly as §1.1 predicts; the numbers live in each model's
+`outputs/ppl/nll_results.json`.)
+
+**The campaign's axis split survives, at scale, against compute-optimal
+opponents — on both sides.** SODA-Hier is clearly better on every
+semantic, lexical, text and ASR metric that resolves — beating even the
+flat model with 1.5x its compute — and quite likely worse on the acoustic
+and generation-quality axes: SALMon and both TTS metrics lose to even the
+0.77x-compute flat. The flattened arm's home turf from Part 1 (acoustics)
+extends, at compute-optimal scale, to TTS speaker similarity and TTS
+intelligibility — §3.1's observation that SODA-Hier beats the *campaign*
+flats on TTS does not carry over to flats that are also scaled up. Two
+reading notes: SALMon here is uniform-scored only (no semantic-only
+variant in the old evals; §1.2 showed its ranking is sensitive to that
+choice), and the TTS gap should be read alongside the corpus caveat below
+— but its size (9.5 vs 17.2 WER, 0.53 vs 0.36 SIM) is unlikely to be
+data-mix alone.
+
+Four caveats, stated so the table cannot be over-read:
+
+- **Different training corpora.** The Flat* models were trained on the
+  original SODA mix (which included ~5% Nemotron text); SODA-Hier on the
+  audio-only audio3 re-pick. At pilot scale this mix shift moved flat ASR
+  by ~21 points in the audio-heavy direction (EXPERIMENTS.md replication
+  anchor), so part of the ASR gap may be data rather than architecture.
+  The text-side wins carry the *opposite* sign — the Flat* models had
+  more text data and still lose sBLIMP-text and sWUGGY-text — so the
+  semantic/text conclusion is strengthened, not weakened, by the confound.
+- **SODA-Hier is not compute-optimal at its budget** — width was
+  CSM-anchored rather than isoflop-optimized, and the run stopped at 55%
+  of its planned epoch (WSD branch). The Flat* models are near-optimal at
+  theirs. This handicap makes the hierarchy's wins conservative and its
+  losses ambiguous.
+- **The speech likelihood tasks use N=8 codebook scoring on both sides**
+  (verified in the old submission logs) — the configuration unaffected by
+  the later codebook-slicing fix, so fully comparable. ASR decode
+  parameters and test sets verified identical (temp 1e-4, top_p 0.8,
+  seed 42, n=2,620).
+- **TTS prompts are formatted to match each model's training data**, so
+  each model is evaluated as intended rather than mis-prompted.
+
+### 3.3 The decay leg is what makes a stable-phase checkpoint usable
+
+Three checkpoints were run through the same suite: two stable-phase
+(27,729 and 42,346, high LR, undecayed) and the final decayed model. The
+comparison isolates something the campaign could not see, because every
+campaign run was only ever evaluated after its decay:
+
+| metric | 27,729 (stable) | 42,346 (stable) | **52,345 (decayed)** |
+|---|---|---|---|
+| bits/audio-second ↓ | 630.7 | 628.0 | **603.5** |
+| bits/text-token ↓ | 1.129 | 1.074 | **0.738** |
+| ASR 0-shot WER ↓ | 15.3 | 16.1 | **7.7** |
+| TTS-WER ↓ | 20.7 | 19.0 | **17.2** |
+| TTS-SIM ↑ | 0.324 | 0.334 | **0.362** |
+| sWUGGY | 59.3 | 58.9 | **60.4** |
+| sBLIMP | 51.4 | 50.6 | **51.8** |
+| SALMon | 67.6 | 68.1 | **69.2** |
+
+**Generation transforms; discrimination barely moves.** Over the decay leg
+ASR halves (16.1 → 7.7) and bits/text-token drops 31% (1.074 → 0.738),
+while sBLIMP/sWUGGY/SALMon gain only 1–2 points and StoryCloze is flat.
+
+The 14,617 stable steps between the first two checkpoints are the control
+that makes this readable: they moved ASR the *wrong way* (15.3 → 16.1) and
+bits/audio-second by only −2.7, whereas the 10,000 decay steps that follow
+move ASR by −8.4 points and bits/audio-second by −24.5. The effect is
+therefore attributable to the annealing, not to the extra tokens.
+
+The mechanism is consistent across metrics: decaying the LR to zero
+sharpens the output distribution, which is worth little to a
+contrastive/paired-likelihood task (which only needs the *ordering* of two
+sequence likelihoods to be right) and worth a great deal to autoregressive
+generation (where every sampled token is drawn from that distribution and
+errors compound). **Practical consequence: never judge a WSD run's
+generative quality from a stable-phase checkpoint** — mid-training ASR/TTS
+numbers understate the finished model badly, and the gap is largest
+exactly where users look.
+
+### 3.4 Scope and caveats
+
+- **No same-corpus flattened twin at this scale.** The Flat* baselines of
+  §3.2 come from the original SODA sweep on a different data mix, so the
+  1e20-scale arm comparison is bracketing evidence with confounds (listed
+  in §3.2), not a controlled isoflop pair like Part 2's. (The 7.0x
+  decode-FLOPs advantage of §2 conclusion 6 is analytic and
+  scale-independent, so it carries over unchanged — at comparable quality
+  the hierarchy generates audio for ~1/7th the FLOPs.)
+- **Not a controlled isoflop point.** Versus the campaign this run changes
+  budget, width *and* corpus (audio3's 396k hours vs audio2's 42k)
+  simultaneously — deliberately, since the goal was the strongest model
+  obtainable at this budget, not a controlled ablation. Treat §3.1 as "the
+  recipe holds", not as a measured scaling exponent.
+- **55.1% of the intended budget** (1.17e20 of 2.12e20), stopped for
+  compute availability and closed properly with a decay leg.
+- **Single epoch, single seed**, English-only, LibriSpeech-centric ASR — as
+  in the campaign.
+- The two stable-phase checkpoints in §3.3 are *not* a scaling ladder;
+  they are mid-training snapshots of one run, and the decay confound is the
+  point of that section rather than a flaw in it.
